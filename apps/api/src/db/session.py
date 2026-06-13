@@ -22,5 +22,6 @@ async_session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(
 
 
 async def get_session() -> AsyncIterator[AsyncSession]:
+    """Yield one async database session for a request or task."""
     async with async_session_factory() as session:
         yield session

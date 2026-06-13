@@ -10,6 +10,7 @@ from src.models.base import Base
 
 if TYPE_CHECKING:
     from src.models.link import Link
+    from src.models.refresh_token import RefreshToken
     from src.models.workspace_member import WorkspaceMember
 
 
@@ -33,3 +34,4 @@ class User(Base):
 
     links: Mapped[list["Link"]] = relationship(back_populates="owner")
     memberships: Mapped[list["WorkspaceMember"]] = relationship(back_populates="user")
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(back_populates="user")

@@ -98,7 +98,7 @@ async def seed() -> None:
             member_stmt = insert(WorkspaceMember).values(
                 workspace_id=WORKSPACE_ID,
                 user_id=user["id"],
-                role="owner" if user["id"] == USERS[0]["id"] else "member",
+                role="owner" if user["id"] == USERS[0]["id"] else "editor",
             )
             member_stmt = member_stmt.on_conflict_do_update(
                 constraint="uq_workspace_members_member",

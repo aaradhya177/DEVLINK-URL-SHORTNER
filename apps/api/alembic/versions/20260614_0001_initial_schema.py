@@ -104,7 +104,7 @@ def upgrade() -> None:
         ),
         sa.Column("workspace_id", postgresql.UUID(as_uuid=True), nullable=False),
         sa.Column("user_id", postgresql.UUID(as_uuid=True), nullable=False),
-        sa.Column("role", sa.String(length=32), nullable=False, server_default="member"),
+        sa.Column("role", sa.String(length=32), nullable=False, server_default="viewer"),
         sa.Column(
             "created_at",
             sa.DateTime(timezone=True),

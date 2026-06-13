@@ -6,6 +6,7 @@ from sqlalchemy import Select, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.models.link import Link
+from src.models.workspace_member import WorkspaceMember
 
 
 async def create_link(session: AsyncSession, link: Link) -> Link:
@@ -19,13 +20,9 @@ async def create_link(session: AsyncSession, link: Link) -> Link:
 async def get_link_by_id(
     session: AsyncSession,
     link_id: int,
-    owner_id: uuid.UUID | None = None,
 ) -> Link | None:
-    """Fetch one link by Snowflake ID, optionally scoped to an owner."""
-    stmt = select(Link).where(Link.id == link_id)
-    if owner_id is not None:
-        stmt = stmt.where(Link.owner_id == owner_id)
-    return await session.scalar(stmt)
+    """Fetch one link by Snowflake ID."""
+    return await session.get(Link, link_id)
 
 
 async def get_link_by_short_code(
@@ -67,15 +64,18 @@ async def get_link_by_long_url_hash(
 
 async def list_links(
     session: AsyncSession,
-    owner_id: uuid.UUID | None = None,
+    user_id: uuid.UUID,
     limit: int = 50,
     offset: int = 0,
     include_inactive: bool = False,
 ) -> Sequence[Link]:
-    """List links ordered newest-first with offset pagination."""
-    stmt: Select[tuple[Link]] = select(Link)
-    if owner_id is not None:
-        stmt = stmt.where(Link.owner_id == owner_id)
+    """List links a user owns or can access through workspace membership."""
+    workspace_ids = select(WorkspaceMember.workspace_id).where(
+        WorkspaceMember.user_id == user_id
+    )
+    stmt: Select[tuple[Link]] = select(Link).where(
+        or_(Link.owner_id == user_id, Link.workspace_id.in_(workspace_ids))
+    )
     if not include_inactive:
         stmt = stmt.where(Link.is_active.is_(True))
 

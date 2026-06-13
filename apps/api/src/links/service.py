@@ -8,8 +8,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from src.links import repository
 from src.links.schemas import LinkCreate, LinkUpdate
 from src.models.link import Link
+from src.models.user import User
 from src.shared.id_generator import SnowflakeGenerator, default_generator, encode_base62
 from src.shared.url_utils import hash_long_url, normalize_url
+from src.workspaces.permissions import user_has_workspace_role
 
 
 ALIAS_PATTERN = re.compile(r"^[A-Za-z0-9-]{3,32}$")
@@ -47,13 +49,27 @@ class InvalidExpirationError(LinkServiceError):
     """Raised when an expiration timestamp is invalid."""
 
 
+class LinkPermissionError(LinkServiceError):
+    """Raised when a user cannot access or modify a link."""
+
+
 async def create_link(
     session: AsyncSession,
     payload: LinkCreate,
-    owner_id: uuid.UUID | None = None,
+    current_user: User,
     generator: SnowflakeGenerator = default_generator,
 ) -> Link:
     """Create or deduplicate a short link."""
+    if payload.workspace_id is not None:
+        allowed = await user_has_workspace_role(
+            session,
+            payload.workspace_id,
+            current_user.id,
+            "editor",
+        )
+        if not allowed:
+            raise LinkPermissionError("Insufficient workspace permissions.")
+
     expires_at = _validate_expiration(payload.expires_at)
     normalized_url = normalize_url(
         payload.destination_url,
@@ -65,7 +81,8 @@ async def create_link(
         existing_link = await repository.get_link_by_long_url_hash(
             session,
             long_url_hash=long_url_hash,
-            owner_id=owner_id,
+            owner_id=current_user.id,
+            workspace_id=payload.workspace_id,
             now=datetime.now(UTC),
         )
         if existing_link is not None:
@@ -81,7 +98,8 @@ async def create_link(
 
     link = Link(
         id=link_id,
-        owner_id=owner_id,
+        workspace_id=payload.workspace_id,
+        owner_id=current_user.id,
         short_code=short_code,
         destination_url=normalized_url,
         long_url_hash=long_url_hash,
@@ -103,26 +121,28 @@ async def create_link(
 async def get_link(
     session: AsyncSession,
     link_id: int,
-    owner_id: uuid.UUID | None = None,
+    current_user: User,
 ) -> Link:
-    """Return a link by ID or raise when it cannot be found."""
-    link = await repository.get_link_by_id(session, link_id, owner_id=owner_id)
+    """Return a link by ID when the current user can read it."""
+    link = await repository.get_link_by_id(session, link_id)
     if link is None:
         raise LinkNotFoundError("Link not found.")
+    if not await _can_read_link(session, link, current_user):
+        raise LinkPermissionError("Insufficient link permissions.")
     return link
 
 
 async def list_links(
     session: AsyncSession,
-    owner_id: uuid.UUID | None = None,
+    current_user: User,
     limit: int = 50,
     offset: int = 0,
     include_inactive: bool = False,
 ) -> list[Link]:
-    """Return paginated links for the current placeholder owner."""
+    """Return paginated links visible to the current user."""
     links = await repository.list_links(
         session,
-        owner_id=owner_id,
+        user_id=current_user.id,
         limit=limit,
         offset=offset,
         include_inactive=include_inactive,
@@ -134,10 +154,12 @@ async def update_link(
     session: AsyncSession,
     link_id: int,
     payload: LinkUpdate,
-    owner_id: uuid.UUID | None = None,
+    current_user: User,
 ) -> Link:
     """Update link metadata, destination, alias, activation, or expiration."""
-    link = await get_link(session, link_id, owner_id=owner_id)
+    link = await get_link(session, link_id, current_user=current_user)
+    if not await _can_write_link(session, link, current_user):
+        raise LinkPermissionError("Insufficient link permissions.")
     update_data = payload.model_dump(exclude_unset=True)
 
     if "expires_at" in update_data:
@@ -182,10 +204,12 @@ async def update_link(
 async def soft_delete_link(
     session: AsyncSession,
     link_id: int,
-    owner_id: uuid.UUID | None = None,
+    current_user: User,
 ) -> Link:
     """Deactivate a link instead of physically deleting it."""
-    link = await get_link(session, link_id, owner_id=owner_id)
+    link = await get_link(session, link_id, current_user=current_user)
+    if not await _can_write_link(session, link, current_user):
+        raise LinkPermissionError("Insufficient link permissions.")
     deleted_link = await repository.soft_delete_link(session, link, datetime.now(UTC))
     await session.commit()
     return deleted_link
@@ -215,3 +239,39 @@ def _validate_expiration(expires_at: datetime | None) -> datetime | None:
     if comparable_expires_at <= now:
         raise InvalidExpirationError("expires_at must be in the future.")
     return comparable_expires_at
+
+
+async def _can_read_link(
+    session: AsyncSession,
+    link: Link,
+    current_user: User,
+) -> bool:
+    """Return whether a user can read a link."""
+    if link.owner_id == current_user.id:
+        return True
+    if link.workspace_id is None:
+        return False
+    return await user_has_workspace_role(
+        session,
+        link.workspace_id,
+        current_user.id,
+        "viewer",
+    )
+
+
+async def _can_write_link(
+    session: AsyncSession,
+    link: Link,
+    current_user: User,
+) -> bool:
+    """Return whether a user can mutate a link."""
+    if link.owner_id == current_user.id:
+        return True
+    if link.workspace_id is None:
+        return False
+    return await user_has_workspace_role(
+        session,
+        link.workspace_id,
+        current_user.id,
+        "editor",
+    )

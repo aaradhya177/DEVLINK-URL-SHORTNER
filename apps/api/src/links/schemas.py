@@ -8,6 +8,7 @@ class LinkCreate(BaseModel):
     """Request body for creating a short link."""
 
     destination_url: str = Field(min_length=1, max_length=4096)
+    workspace_id: uuid.UUID | None = None
     title: str | None = Field(default=None, max_length=255)
     custom_alias: str | None = Field(default=None, min_length=3, max_length=32)
     expires_at: datetime | None = None

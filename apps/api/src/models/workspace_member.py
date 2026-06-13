@@ -30,7 +30,7 @@ class WorkspaceMember(Base):
     user_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
     )
-    role: Mapped[str] = mapped_column(String(32), nullable=False, default="member")
+    role: Mapped[str] = mapped_column(String(32), nullable=False, default="viewer")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
