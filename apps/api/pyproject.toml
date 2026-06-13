@@ -1,0 +1,40 @@
+[tool.poetry]
+name = "devlink-api"
+version = "0.1.0"
+description = "FastAPI service for the Distributed Link Intelligence Platform."
+authors = ["DEVLINK Team"]
+readme = "README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
+pydantic-settings = "^2.4.0"
+
+[tool.poetry.group.dev.dependencies]
+black = "^24.8.0"
+ruff = "^0.6.0"
+pytest = "^8.3.0"
+httpx = "^0.27.0"
+
+[tool.poetry.scripts]
+devlink-api = "app.main:run"
+
+[build-system]
+requires = ["poetry-core>=1.9.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
