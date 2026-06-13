@@ -6,6 +6,7 @@ class Settings(BaseSettings):
     redis_url: str
     kafka_brokers: str
     jwt_secret: str
+    devlink_worker_id: int = 1
     app_env: str = "local"
     log_level: str = "INFO"
 
