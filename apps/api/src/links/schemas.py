@@ -11,6 +11,7 @@ class LinkCreate(BaseModel):
     workspace_id: uuid.UUID | None = None
     title: str | None = Field(default=None, max_length=255)
     custom_alias: str | None = Field(default=None, min_length=3, max_length=32)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
     expires_at: datetime | None = None
     strip_tracking_params: bool = True
 
@@ -29,6 +30,8 @@ class LinkUpdate(BaseModel):
     destination_url: str | None = Field(default=None, min_length=1, max_length=4096)
     title: str | None = Field(default=None, max_length=255)
     custom_alias: str | None = Field(default=None, min_length=3, max_length=32)
+    password: str | None = Field(default=None, min_length=8, max_length=128)
+    clear_password: bool = False
     is_active: bool | None = None
     expires_at: datetime | None = None
     strip_tracking_params: bool = True
@@ -51,6 +54,7 @@ class LinkResponse(BaseModel):
     short_code: str
     destination_url: str
     title: str | None
+    is_password_protected: bool
     is_active: bool
     expires_at: datetime | None
     created_at: datetime

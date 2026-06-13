@@ -30,6 +30,7 @@ class Link(Base):
     short_code: Mapped[str] = mapped_column(String(32), nullable=False)
     destination_url: Mapped[str] = mapped_column(Text, nullable=False)
     long_url_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    password_hash: Mapped[str | None] = mapped_column(String(255))
     title: Mapped[str | None] = mapped_column(String(255))
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -49,3 +50,8 @@ class Link(Base):
     daily_analytics: Mapped[list["LinkAnalyticsDaily"]] = relationship(
         back_populates="link"
     )
+
+    @property
+    def is_password_protected(self) -> bool:
+        """Return whether this link requires a redirect password."""
+        return self.password_hash is not None

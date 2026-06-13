@@ -5,10 +5,12 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.auth.security import hash_password
 from src.links import repository
 from src.links.schemas import LinkCreate, LinkUpdate
 from src.models.link import Link
 from src.models.user import User
+from src.shared.cache import cached_link_from_model, invalidate_link_cache, set_link_cache
 from src.shared.id_generator import SnowflakeGenerator, default_generator, encode_base62
 from src.shared.url_utils import hash_long_url, normalize_url
 from src.workspaces.permissions import user_has_workspace_role
@@ -86,6 +88,10 @@ async def create_link(
             now=datetime.now(UTC),
         )
         if existing_link is not None:
+            await set_link_cache(
+                existing_link.short_code,
+                cached_link_from_model(existing_link),
+            )
             return existing_link
         link_id = generator.generate()
         short_code = encode_base62(link_id)
@@ -104,6 +110,7 @@ async def create_link(
         destination_url=normalized_url,
         long_url_hash=long_url_hash,
         title=payload.title,
+        password_hash=hash_password(payload.password) if payload.password else None,
         expires_at=expires_at,
         is_active=True,
     )
@@ -111,6 +118,10 @@ async def create_link(
     try:
         created_link = await repository.create_link(session, link)
         await session.commit()
+        await set_link_cache(
+            created_link.short_code,
+            cached_link_from_model(created_link),
+        )
     except IntegrityError as exc:
         await session.rollback()
         raise AliasConflictError("Short code is already in use.") from exc
@@ -161,6 +172,7 @@ async def update_link(
     if not await _can_write_link(session, link, current_user):
         raise LinkPermissionError("Insufficient link permissions.")
     update_data = payload.model_dump(exclude_unset=True)
+    previous_short_code = link.short_code
 
     if "expires_at" in update_data:
         link.expires_at = _validate_expiration(payload.expires_at)
@@ -186,6 +198,10 @@ async def update_link(
 
     if "title" in update_data:
         link.title = payload.title
+    if payload.password is not None:
+        link.password_hash = hash_password(payload.password)
+    if payload.clear_password:
+        link.password_hash = None
     if payload.is_active is not None:
         link.is_active = payload.is_active
 
@@ -194,6 +210,9 @@ async def update_link(
     try:
         updated_link = await repository.update_link(session, link)
         await session.commit()
+        await invalidate_link_cache(previous_short_code)
+        if previous_short_code != updated_link.short_code:
+            await invalidate_link_cache(updated_link.short_code)
     except IntegrityError as exc:
         await session.rollback()
         raise AliasConflictError("Short code is already in use.") from exc
@@ -210,8 +229,10 @@ async def soft_delete_link(
     link = await get_link(session, link_id, current_user=current_user)
     if not await _can_write_link(session, link, current_user):
         raise LinkPermissionError("Insufficient link permissions.")
+    short_code = link.short_code
     deleted_link = await repository.soft_delete_link(session, link, datetime.now(UTC))
     await session.commit()
+    await invalidate_link_cache(short_code)
     return deleted_link
 
 
