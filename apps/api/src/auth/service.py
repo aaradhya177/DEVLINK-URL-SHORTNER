@@ -12,6 +12,7 @@ from src.auth.security import (
     create_refresh_token,
     hash_password,
     hash_refresh_token,
+    secure_compare,
     verify_password,
 )
 from src.models.refresh_token import RefreshToken
@@ -130,13 +131,15 @@ async def _get_valid_refresh_token(
             raise InvalidCredentialsError("Invalid refresh token.") from exc
         raise InvalidCredentialsError("Invalid refresh token.") from exc
 
-    token_record = await session.get(RefreshToken, token_id)
+    token_record = await session.scalar(
+        select(RefreshToken).where(RefreshToken.id == token_id).with_for_update()
+    )
     now = datetime.now(UTC)
     if (
         token_record is None
         or token_record.revoked_at is not None
         or token_record.expires_at <= now
-        or token_record.token_hash != hash_refresh_token(refresh_token)
+        or not secure_compare(token_record.token_hash, hash_refresh_token(refresh_token))
     ):
         raise InvalidCredentialsError("Invalid refresh token.")
     return token_record

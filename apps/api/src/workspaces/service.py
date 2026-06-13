@@ -14,6 +14,7 @@ from src.workspaces.schemas import (
     WorkspaceMemberUpdate,
     WorkspaceUpdate,
 )
+from src.workspaces.permissions import get_workspace_role
 
 
 class WorkspaceServiceError(Exception):
@@ -30,6 +31,10 @@ class WorkspaceMemberConflictError(WorkspaceServiceError):
 
 class WorkspaceMemberNotFoundError(WorkspaceServiceError):
     """Raised when a workspace member does not exist."""
+
+
+class WorkspacePermissionError(WorkspaceServiceError):
+    """Raised when a workspace action needs stronger permissions."""
 
 
 async def create_workspace(
@@ -90,9 +95,16 @@ async def add_member(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     payload: WorkspaceMemberCreate,
+    current_user: User,
 ) -> WorkspaceMember:
     """Add a user to a workspace."""
     await get_workspace(session, workspace_id)
+    await _ensure_owner_role_change_allowed(
+        session,
+        workspace_id,
+        current_user,
+        payload.role,
+    )
     member = WorkspaceMember(
         workspace_id=workspace_id,
         user_id=payload.user_id,
@@ -123,11 +135,19 @@ async def update_member(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     payload: WorkspaceMemberUpdate,
+    current_user: User,
 ) -> WorkspaceMember:
     """Update a workspace member role."""
     member = await repository.get_member(session, workspace_id, user_id)
     if member is None:
         raise WorkspaceMemberNotFoundError("Workspace member not found.")
+    await _ensure_owner_role_change_allowed(
+        session,
+        workspace_id,
+        current_user,
+        payload.role,
+        existing_role=member.role,
+    )
     member.role = payload.role
     await session.commit()
     await session.refresh(member)
@@ -138,10 +158,34 @@ async def remove_member(
     session: AsyncSession,
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
+    current_user: User,
 ) -> None:
     """Remove a workspace member."""
     member = await repository.get_member(session, workspace_id, user_id)
     if member is None:
         raise WorkspaceMemberNotFoundError("Workspace member not found.")
+    await _ensure_owner_role_change_allowed(
+        session,
+        workspace_id,
+        current_user,
+        target_role="viewer",
+        existing_role=member.role,
+    )
     await session.delete(member)
     await session.commit()
+
+
+async def _ensure_owner_role_change_allowed(
+    session: AsyncSession,
+    workspace_id: uuid.UUID,
+    current_user: User,
+    target_role: str,
+    existing_role: str | None = None,
+) -> None:
+    """Require an owner for changes that grant or affect owner membership."""
+    if target_role != "owner" and existing_role != "owner":
+        return
+
+    actor_role = await get_workspace_role(session, workspace_id, current_user.id)
+    if actor_role != "owner":
+        raise WorkspacePermissionError("Only workspace owners can manage owners.")

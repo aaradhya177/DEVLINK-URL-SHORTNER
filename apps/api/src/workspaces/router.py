@@ -93,16 +93,23 @@ async def delete_workspace(
 async def add_member(
     workspace_id: uuid.UUID,
     payload: WorkspaceMemberCreate,
-    _: Annotated[User, Depends(require_workspace_role("admin"))],
+    current_user: Annotated[User, Depends(require_workspace_role("admin"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> WorkspaceMemberResponse:
     """Add a member to a workspace."""
     try:
-        member = await service.add_member(session, workspace_id, payload)
+        member = await service.add_member(
+            session,
+            workspace_id,
+            payload,
+            current_user,
+        )
     except service.WorkspaceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except service.WorkspaceMemberConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except service.WorkspacePermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return WorkspaceMemberResponse.model_validate(member)
 
 
@@ -125,14 +132,22 @@ async def update_member(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
     payload: WorkspaceMemberUpdate,
-    _: Annotated[User, Depends(require_workspace_role("admin"))],
+    current_user: Annotated[User, Depends(require_workspace_role("admin"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> WorkspaceMemberResponse:
     """Update a workspace member role."""
     try:
-        member = await service.update_member(session, workspace_id, user_id, payload)
+        member = await service.update_member(
+            session,
+            workspace_id,
+            user_id,
+            payload,
+            current_user,
+        )
     except service.WorkspaceMemberNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except service.WorkspacePermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return WorkspaceMemberResponse.model_validate(member)
 
 
@@ -143,11 +158,13 @@ async def update_member(
 async def remove_member(
     workspace_id: uuid.UUID,
     user_id: uuid.UUID,
-    _: Annotated[User, Depends(require_workspace_role("admin"))],
+    current_user: Annotated[User, Depends(require_workspace_role("admin"))],
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> None:
     """Remove a workspace member."""
     try:
-        await service.remove_member(session, workspace_id, user_id)
+        await service.remove_member(session, workspace_id, user_id, current_user)
     except service.WorkspaceMemberNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except service.WorkspacePermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc

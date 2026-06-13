@@ -1,4 +1,5 @@
 import hashlib
+import hmac
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -73,6 +74,7 @@ def decode_token(token: str, expected_type: str) -> dict[str, Any]:
             token,
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
+            options={"require": ["exp", "iat", "sub", "type"]},
         )
     except InvalidTokenError as exc:
         raise HTTPException(
@@ -119,3 +121,8 @@ async def get_current_user(
 def _encode_jwt(payload: dict[str, Any]) -> str:
     """Encode a JWT payload with configured API settings."""
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
+
+
+def secure_compare(value: str, expected: str) -> bool:
+    """Compare secret-derived strings with constant-time comparison."""
+    return hmac.compare_digest(value, expected)
