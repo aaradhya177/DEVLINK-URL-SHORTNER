@@ -1,5 +1,7 @@
 # DEVLINK
 
+[![CI](https://github.com/aaradhya177/DEVLINK-URL-SHORTNER/actions/workflows/ci.yml/badge.svg)](https://github.com/aaradhya177/DEVLINK-URL-SHORTNER/actions/workflows/ci.yml)
+
 Distributed Link Intelligence Platform: a production-grade URL shortener with analytics.
 
 The architecture source of truth is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).

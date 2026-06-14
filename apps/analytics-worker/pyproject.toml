@@ -22,6 +22,7 @@ ruff = "^0.6.0"
 pytest = "^8.3.0"
 pytest-asyncio = "^0.24.0"
 pytest-cov = "^5.0.0"
+alembic = "^1.13.2"
 
 [tool.poetry.scripts]
 devlink-analytics-worker = "worker.worker:main"

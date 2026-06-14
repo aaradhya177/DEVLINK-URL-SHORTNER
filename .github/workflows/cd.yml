@@ -1,0 +1,69 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: cd-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: Build and push images
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        image:
+          - name: api
+            context: apps/api
+          - name: analytics-worker
+            context: apps/analytics-worker
+          - name: web
+            context: apps/web
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Normalize image owner
+        id: image_owner
+        shell: bash
+        run: echo "owner=${GITHUB_REPOSITORY_OWNER,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push ${{ matrix.image.name }}
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          push: true
+          tags: |
+            ghcr.io/${{ steps.image_owner.outputs.owner }}/devlink-${{ matrix.image.name }}:${{ github.sha }}
+            ghcr.io/${{ steps.image_owner.outputs.owner }}/devlink-${{ matrix.image.name }}:latest
+          cache-from: type=gha,scope=${{ matrix.image.name }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}
+
+  deploy-placeholder:
+    name: Deployment placeholder
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    steps:
+      - name: Await Phase 15 deployment target
+        run: |
+          echo "Images have been published to GHCR."
+          echo "TODO Phase 15: deploy these image tags to the selected cloud target."
+          echo "TODO Phase 15: add environment approvals, cloud credentials, and smoke tests."

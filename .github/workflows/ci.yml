@@ -1,0 +1,185 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - main
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-lint:
+    name: Backend lint
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        service:
+          - name: api
+            path: apps/api
+          - name: analytics-worker
+            path: apps/analytics-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: pipx install poetry==1.8.5
+
+      - name: Cache Poetry packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: poetry-${{ runner.os }}-${{ matrix.service.name }}-${{ hashFiles(format('{0}/pyproject.toml', matrix.service.path)) }}
+          restore-keys: |
+            poetry-${{ runner.os }}-${{ matrix.service.name }}-
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service.path }}
+        run: poetry install --with dev --no-interaction
+
+      - name: Ruff
+        working-directory: ${{ matrix.service.path }}
+        run: poetry run ruff check .
+
+      - name: Black
+        working-directory: ${{ matrix.service.path }}
+        run: poetry run black --check .
+
+  backend-tests:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    needs: backend-lint
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: devlink_test
+          POSTGRES_USER: devlink
+          POSTGRES_PASSWORD: devlink
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U devlink -d devlink_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    strategy:
+      fail-fast: true
+      matrix:
+        service:
+          - name: api
+            path: apps/api
+            pytest_args: --cov --cov-report=term-missing
+          - name: analytics-worker
+            path: apps/analytics-worker
+            pytest_args: --cov --cov-report=term-missing
+    env:
+      TEST_DATABASE_URL: postgresql+asyncpg://devlink:devlink@localhost:5432/devlink_test
+      DATABASE_URL: postgresql+asyncpg://devlink:devlink@localhost:5432/devlink_test
+      REDIS_URL: redis://localhost:6379/1
+      KAFKA_BROKERS: localhost:9092
+      JWT_SECRET: 0123456789abcdef0123456789abcdef
+      IP_HASH_SECRET: ci-ip-hash-secret
+      DEVLINK_WORKER_ID: 1
+      ALLOW_PRIVATE_REDIRECT_URLS: "true"
+      PYTHONPATH: ${{ github.workspace }}/apps/api:${{ github.workspace }}/apps/analytics-worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Poetry
+        run: pipx install poetry==1.8.5
+
+      - name: Cache Poetry packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            ~/.cache/pip
+          key: poetry-${{ runner.os }}-${{ matrix.service.name }}-${{ hashFiles(format('{0}/pyproject.toml', matrix.service.path)) }}
+          restore-keys: |
+            poetry-${{ runner.os }}-${{ matrix.service.name }}-
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service.path }}
+        run: poetry install --with dev --no-interaction
+
+      - name: Run tests with coverage
+        working-directory: ${{ matrix.service.path }}
+        run: poetry run pytest ${{ matrix.service.pytest_args }}
+
+  frontend-lint:
+    name: Frontend lint and type-check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: ESLint
+        working-directory: apps/web
+        run: npm run lint
+
+      - name: TypeScript
+        working-directory: apps/web
+        run: npx tsc --noEmit
+
+  frontend-tests:
+    name: Frontend tests
+    runs-on: ubuntu-latest
+    needs: frontend-lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Run tests with coverage
+        working-directory: apps/web
+        run: npm test
