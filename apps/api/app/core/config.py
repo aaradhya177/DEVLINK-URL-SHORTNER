@@ -1,5 +1,7 @@
+from typing import Annotated
+
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -21,7 +23,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = 20
     db_pool_timeout_seconds: int = 30
     redis_max_connections: int = 100
-    cors_allowed_origins: list[str] = Field(default_factory=list)
+    cors_allowed_origins: Annotated[list[str], NoDecode] = Field(default_factory=list)
     allow_private_redirect_urls: bool = False
     redirect_password_attempt_limit: int = 10
     redirect_password_attempt_window_seconds: int = 60
