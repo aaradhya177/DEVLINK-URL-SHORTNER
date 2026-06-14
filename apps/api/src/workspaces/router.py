@@ -19,10 +19,26 @@ from src.workspaces.schemas import (
 )
 
 
-router = APIRouter(prefix="/api/v1/workspaces", tags=["workspaces"])
+router = APIRouter(
+    prefix="/api/v1/workspaces",
+    tags=["workspaces"],
+    responses={
+        401: {"description": "Authentication is required."},
+        403: {"description": "Required workspace role is missing."},
+        404: {"description": "Workspace or member not found."},
+        409: {"description": "Workspace membership already exists."},
+        422: {"description": "Request validation failed."},
+    },
+)
 
 
-@router.post("", response_model=WorkspaceResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=WorkspaceResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a workspace",
+    description="Create a workspace and make the authenticated user its owner.",
+)
 async def create_workspace(
     payload: WorkspaceCreate,
     current_user: Annotated[User, Depends(get_current_user)],
@@ -33,7 +49,12 @@ async def create_workspace(
     return WorkspaceResponse.model_validate(workspace)
 
 
-@router.get("", response_model=list[WorkspaceResponse])
+@router.get(
+    "",
+    response_model=list[WorkspaceResponse],
+    summary="List workspaces",
+    description="List all workspaces where the authenticated user is a member.",
+)
 async def list_workspaces(
     current_user: Annotated[User, Depends(get_current_user)],
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -43,7 +64,12 @@ async def list_workspaces(
     return [WorkspaceResponse.model_validate(workspace) for workspace in workspaces]
 
 
-@router.get("/{workspace_id}", response_model=WorkspaceResponse)
+@router.get(
+    "/{workspace_id}",
+    response_model=WorkspaceResponse,
+    summary="Get a workspace",
+    description="Return workspace metadata for users with at least viewer access.",
+)
 async def get_workspace(
     workspace_id: uuid.UUID,
     _: Annotated[User, Depends(require_workspace_role("viewer"))],
@@ -57,7 +83,12 @@ async def get_workspace(
     return WorkspaceResponse.model_validate(workspace)
 
 
-@router.patch("/{workspace_id}", response_model=WorkspaceResponse)
+@router.patch(
+    "/{workspace_id}",
+    response_model=WorkspaceResponse,
+    summary="Update a workspace",
+    description="Update workspace metadata. Requires admin or owner role.",
+)
 async def update_workspace(
     workspace_id: uuid.UUID,
     payload: WorkspaceUpdate,
@@ -72,7 +103,12 @@ async def update_workspace(
     return WorkspaceResponse.model_validate(workspace)
 
 
-@router.delete("/{workspace_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{workspace_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Delete a workspace",
+    description="Delete a workspace. Requires owner role.",
+)
 async def delete_workspace(
     workspace_id: uuid.UUID,
     _: Annotated[User, Depends(require_workspace_role("owner"))],
@@ -89,6 +125,8 @@ async def delete_workspace(
     "/{workspace_id}/members",
     response_model=WorkspaceMemberResponse,
     status_code=status.HTTP_201_CREATED,
+    summary="Add a workspace member",
+    description="Add a user to a workspace. Requires admin or owner role.",
 )
 async def add_member(
     workspace_id: uuid.UUID,
@@ -113,7 +151,12 @@ async def add_member(
     return WorkspaceMemberResponse.model_validate(member)
 
 
-@router.get("/{workspace_id}/members", response_model=list[WorkspaceMemberResponse])
+@router.get(
+    "/{workspace_id}/members",
+    response_model=list[WorkspaceMemberResponse],
+    summary="List workspace members",
+    description="List workspace members. Requires at least viewer role.",
+)
 async def list_members(
     workspace_id: uuid.UUID,
     _: Annotated[User, Depends(require_workspace_role("viewer"))],
@@ -127,6 +170,8 @@ async def list_members(
 @router.patch(
     "/{workspace_id}/members/{user_id}",
     response_model=WorkspaceMemberResponse,
+    summary="Update a workspace member",
+    description="Change a member role. Requires admin or owner role.",
 )
 async def update_member(
     workspace_id: uuid.UUID,
@@ -154,6 +199,8 @@ async def update_member(
 @router.delete(
     "/{workspace_id}/members/{user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    summary="Remove a workspace member",
+    description="Remove a member from a workspace. Requires admin or owner role.",
 )
 async def remove_member(
     workspace_id: uuid.UUID,

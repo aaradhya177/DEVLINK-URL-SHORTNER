@@ -1,0 +1,1727 @@
+openapi: 3.1.0
+info:
+  title: DEVLINK API
+  description: API service for the Distributed Link Intelligence Platform.
+  version: 0.1.0
+paths:
+  /api/v1/auth/register:
+    post:
+      tags:
+      - auth
+      summary: Register a user
+      description: Create a password-backed user account using a normalized email.
+      operationId: register_api_v1_auth_register_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Register Api V1 Auth Register Post
+        '401':
+          description: Invalid or expired credentials.
+        '409':
+          description: The requested account already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/auth/login:
+    post:
+      tags:
+      - auth
+      summary: Log in
+      description: Verify password credentials and issue JWT access/refresh tokens.
+      operationId: login_api_v1_auth_login_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid or expired credentials.
+        '409':
+          description: The requested account already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/auth/refresh:
+    post:
+      tags:
+      - auth
+      summary: Refresh tokens
+      description: Rotate a refresh token and return a new access/refresh token pair.
+        The previous refresh token is revoked.
+      operationId: refresh_api_v1_auth_refresh_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TokenResponse'
+        '401':
+          description: Invalid or expired credentials.
+        '409':
+          description: The requested account already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/auth/logout:
+    post:
+      tags:
+      - auth
+      summary: Log out
+      description: Revoke a refresh token so it can no longer be rotated.
+      operationId: logout_api_v1_auth_logout_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RefreshRequest'
+        required: true
+      responses:
+        '204':
+          description: Successful Response
+        '401':
+          description: Invalid or expired credentials.
+        '409':
+          description: The requested account already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/auth/oauth/google:
+    get:
+      tags:
+      - auth
+      summary: Start Google OAuth
+      description: Placeholder endpoint for a future Google OAuth authorization flow.
+      operationId: start_google_oauth_api_v1_auth_oauth_google_get
+      responses:
+        '501':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Start Google Oauth Api V1 Auth Oauth Google Get
+        '401':
+          description: Invalid or expired credentials.
+        '409':
+          description: The requested account already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/auth/oauth/google/callback:
+    get:
+      tags:
+      - auth
+      summary: Finish Google OAuth
+      description: Placeholder callback endpoint for a future Google OAuth flow.
+      operationId: finish_google_oauth_api_v1_auth_oauth_google_callback_get
+      responses:
+        '501':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Finish Google Oauth Api V1 Auth Oauth Google Callback
+                  Get
+        '401':
+          description: Invalid or expired credentials.
+        '409':
+          description: The requested account already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/links:
+    post:
+      tags:
+      - links
+      summary: Create a short link
+      description: Create a short link for the authenticated user. Duplicate normalized
+        URLs are deduplicated unless a custom alias is requested.
+      operationId: create_link_api_v1_links_post
+      security:
+      - OAuth2PasswordBearer: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+    get:
+      tags:
+      - links
+      summary: List links
+      description: List links visible to the authenticated user with offset pagination.
+      operationId: list_links_api_v1_links_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          maximum: 100
+          minimum: 1
+          default: 50
+          title: Limit
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 0
+          default: 0
+          title: Offset
+      - name: include_inactive
+        in: query
+        required: false
+        schema:
+          type: boolean
+          default: false
+          title: Include Inactive
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/LinkResponse'
+                title: Response List Links Api V1 Links Get
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /api/v1/links/bulk:
+    post:
+      tags:
+      - links
+      summary: Bulk-create short links
+      description: Shorten up to 50 URLs and return per-item success/error results.
+        Partial failures do not fail the whole request.
+      operationId: bulk_create_links_api_v1_links_bulk_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/BulkLinkCreateRequest'
+        required: true
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkLinkCreateResponse'
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+      security:
+      - OAuth2PasswordBearer: []
+  /api/v1/links/{short_code}/qr:
+    get:
+      tags:
+      - links
+      summary: Get link QR code
+      description: Return a cached PNG or SVG QR code for a public redirect URL. This
+        endpoint is public but only returns QR codes for available links.
+      operationId: get_link_qr_api_v1_links__short_code__qr_get
+      parameters:
+      - name: short_code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Short Code
+      - name: image_format
+        in: query
+        required: false
+        schema:
+          type: string
+          pattern: ^(png|svg)$
+          default: png
+          title: Image Format
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /api/v1/links/{link_id}:
+    get:
+      tags:
+      - links
+      summary: Get a link
+      description: Return one link by numeric ID if the authenticated user can access
+        it.
+      operationId: get_link_api_v1_links__link_id__get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+    patch:
+      tags:
+      - links
+      summary: Update a link
+      description: Update link metadata, destination, alias, password, active state,
+        or expiration. Destination changes trigger a new asynchronous safety check.
+      operationId: update_link_api_v1_links__link_id__patch
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LinkUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+    delete:
+      tags:
+      - links
+      summary: Soft-delete a link
+      description: Mark a link inactive and invalidate redirect cache entries.
+      operationId: delete_link_api_v1_links__link_id__delete
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LinkResponse'
+        '400':
+          description: Invalid alias, URL, expiration, or request payload.
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link/workspace.
+        '404':
+          description: Link not found.
+        '409':
+          description: Custom alias already exists.
+        '410':
+          description: The public link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /api/v1/analytics/{link_id}/summary:
+    get:
+      tags:
+      - analytics
+      summary: Get analytics summary
+      description: Return total clicks for a link using the denormalized link counter.
+        Unique clicks are not tracked yet and are reported as unavailable.
+      operationId: get_summary_api_v1_analytics__link_id__summary_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AnalyticsSummaryResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link.
+        '404':
+          description: Link not found.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /api/v1/analytics/{link_id}/timeseries:
+    get:
+      tags:
+      - analytics
+      summary: Get click time series
+      description: Return daily click counts for a link from the aggregate analytics
+        table. Dashboard queries never read raw click events.
+      operationId: get_timeseries_api_v1_analytics__link_id__timeseries_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+          title: From
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date
+          title: To
+      - name: granularity
+        in: query
+        required: false
+        schema:
+          const: day
+          type: string
+          default: day
+          title: Granularity
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimeseriesResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link.
+        '404':
+          description: Link not found.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /api/v1/analytics/{link_id}/geo:
+    get:
+      tags:
+      - analytics
+      summary: Get geo breakdown
+      description: Return aggregated click counts grouped by country.
+      operationId: get_geo_api_v1_analytics__link_id__geo_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BreakdownResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link.
+        '404':
+          description: Link not found.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /api/v1/analytics/{link_id}/devices:
+    get:
+      tags:
+      - analytics
+      summary: Get device breakdown
+      description: Return aggregated click counts grouped by device, browser, and
+        OS.
+      operationId: get_devices_api_v1_analytics__link_id__devices_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: link_id
+        in: path
+        required: true
+        schema:
+          type: integer
+          title: Link Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeviceBreakdownResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: The current user cannot access this link.
+        '404':
+          description: Link not found.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Rate limit exceeded.
+  /r/{short_code}:
+    get:
+      tags:
+      - redirect
+      summary: Resolve a short code
+      description: Public redirect hot path. Looks up link metadata from Redis first,
+        falls back to PostgreSQL, records a non-blocking click event, and returns
+        a temporary redirect when the link is active.
+      operationId: redirect_short_code_r__short_code__get
+      parameters:
+      - name: short_code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Short Code
+      - name: redirect_token
+        in: query
+        required: false
+        schema:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Redirect Token
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema: {}
+        '401':
+          description: Password-protected redirect token is missing or invalid.
+        '403':
+          description: Link is blocked for safety reasons.
+        '404':
+          description: Short code not found.
+        '410':
+          description: Link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Redirect or password verification rate limit exceeded.
+  /r/{short_code}/verify:
+    post:
+      tags:
+      - redirect
+      summary: Verify a protected redirect
+      description: Verify a password for a protected short link and return a short-lived
+        redirect token. Attempts are rate-limited.
+      operationId: verify_redirect_password_r__short_code__verify_post
+      parameters:
+      - name: short_code
+        in: path
+        required: true
+        schema:
+          type: string
+          title: Short Code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PasswordVerifyRequest'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PasswordVerifyResponse'
+        '401':
+          description: Password-protected redirect token is missing or invalid.
+        '403':
+          description: Link is blocked for safety reasons.
+        '404':
+          description: Short code not found.
+        '410':
+          description: Link is inactive or expired.
+        '422':
+          description: Request validation failed.
+        '429':
+          description: Redirect or password verification rate limit exceeded.
+  /api/v1/workspaces:
+    get:
+      tags:
+      - workspaces
+      summary: List workspaces
+      description: List all workspaces where the authenticated user is a member.
+      operationId: list_workspaces_api_v1_workspaces_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                items:
+                  $ref: '#/components/schemas/WorkspaceResponse'
+                type: array
+                title: Response List Workspaces Api V1 Workspaces Get
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+      security:
+      - OAuth2PasswordBearer: []
+    post:
+      tags:
+      - workspaces
+      summary: Create a workspace
+      description: Create a workspace and make the authenticated user its owner.
+      operationId: create_workspace_api_v1_workspaces_post
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceCreate'
+        required: true
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+      security:
+      - OAuth2PasswordBearer: []
+  /api/v1/workspaces/{workspace_id}:
+    get:
+      tags:
+      - workspaces
+      summary: Get a workspace
+      description: Return workspace metadata for users with at least viewer access.
+      operationId: get_workspace_api_v1_workspaces__workspace_id__get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+    patch:
+      tags:
+      - workspaces
+      summary: Update a workspace
+      description: Update workspace metadata. Requires admin or owner role.
+      operationId: update_workspace_api_v1_workspaces__workspace_id__patch
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+    delete:
+      tags:
+      - workspaces
+      summary: Delete a workspace
+      description: Delete a workspace. Requires owner role.
+      operationId: delete_workspace_api_v1_workspaces__workspace_id__delete
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '204':
+          description: Successful Response
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/workspaces/{workspace_id}/members:
+    post:
+      tags:
+      - workspaces
+      summary: Add a workspace member
+      description: Add a user to a workspace. Requires admin or owner role.
+      operationId: add_member_api_v1_workspaces__workspace_id__members_post
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceMemberCreate'
+      responses:
+        '201':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceMemberResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+    get:
+      tags:
+      - workspaces
+      summary: List workspace members
+      description: List workspace members. Requires at least viewer role.
+      operationId: list_members_api_v1_workspaces__workspace_id__members_get
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/WorkspaceMemberResponse'
+                title: Response List Members Api V1 Workspaces  Workspace Id  Members
+                  Get
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+  /api/v1/workspaces/{workspace_id}/members/{user_id}:
+    patch:
+      tags:
+      - workspaces
+      summary: Update a workspace member
+      description: Change a member role. Requires admin or owner role.
+      operationId: update_member_api_v1_workspaces__workspace_id__members__user_id__patch
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: User Id
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkspaceMemberUpdate'
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkspaceMemberResponse'
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+    delete:
+      tags:
+      - workspaces
+      summary: Remove a workspace member
+      description: Remove a member from a workspace. Requires admin or owner role.
+      operationId: remove_member_api_v1_workspaces__workspace_id__members__user_id__delete
+      security:
+      - OAuth2PasswordBearer: []
+      parameters:
+      - name: workspace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: Workspace Id
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+          title: User Id
+      responses:
+        '204':
+          description: Successful Response
+        '401':
+          description: Authentication is required.
+        '403':
+          description: Required workspace role is missing.
+        '404':
+          description: Workspace or member not found.
+        '409':
+          description: Workspace membership already exists.
+        '422':
+          description: Request validation failed.
+  /health:
+    get:
+      summary: Health
+      description: Return service health status.
+      operationId: health_health_get
+      responses:
+        '200':
+          description: Successful Response
+          content:
+            application/json:
+              schema:
+                additionalProperties:
+                  type: string
+                type: object
+                title: Response Health Health Get
+components:
+  schemas:
+    AnalyticsSummaryResponse:
+      properties:
+        link_id:
+          type: integer
+          title: Link Id
+        total_clicks:
+          type: integer
+          title: Total Clicks
+        unique_clicks:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Unique Clicks
+        unique_clicks_note:
+          type: string
+          title: Unique Clicks Note
+      type: object
+      required:
+      - link_id
+      - total_clicks
+      - unique_clicks
+      - unique_clicks_note
+      title: AnalyticsSummaryResponse
+      description: Summary analytics for a single link.
+      example:
+        link_id: 742910234935296
+        total_clicks: 1280
+        unique_clicks_note: Unique clicks are not tracked yet; current schema stores
+          only privacy-preserving event hashes and aggregate counts.
+    BreakdownItem:
+      properties:
+        dimension:
+          type: string
+          title: Dimension
+        clicks:
+          type: integer
+          title: Clicks
+      type: object
+      required:
+      - dimension
+      - clicks
+      title: BreakdownItem
+      description: One grouped analytics breakdown item.
+    BreakdownResponse:
+      properties:
+        link_id:
+          type: integer
+          title: Link Id
+        items:
+          items:
+            $ref: '#/components/schemas/BreakdownItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - link_id
+      - items
+      title: BreakdownResponse
+      description: Generic grouped analytics response.
+      example:
+        items:
+        - clicks: 720
+          dimension: US
+        - clicks: 240
+          dimension: IN
+        link_id: 742910234935296
+    BulkLinkCreateRequest:
+      properties:
+        urls:
+          items:
+            type: string
+          type: array
+          maxItems: 50
+          minItems: 1
+          title: Urls
+        workspace_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+        strip_tracking_params:
+          type: boolean
+          title: Strip Tracking Params
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - urls
+      title: BulkLinkCreateRequest
+      description: Bulk URL shortening request.
+      example:
+        strip_tracking_params: true
+        urls:
+        - https://example.com/a
+        - https://example.com/b?utm_campaign=launch
+    BulkLinkCreateResponse:
+      properties:
+        results:
+          items:
+            $ref: '#/components/schemas/BulkLinkResult'
+          type: array
+          title: Results
+      type: object
+      required:
+      - results
+      title: BulkLinkCreateResponse
+      description: Bulk URL shortening response.
+    BulkLinkResult:
+      properties:
+        index:
+          type: integer
+          title: Index
+        status:
+          type: string
+          title: Status
+        url:
+          type: string
+          title: Url
+        link:
+          anyOf:
+          - $ref: '#/components/schemas/LinkResponse'
+          - type: 'null'
+        error:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Error
+      type: object
+      required:
+      - index
+      - status
+      - url
+      title: BulkLinkResult
+      description: Per-item bulk shortening result.
+    DeviceBreakdownItem:
+      properties:
+        device_type:
+          type: string
+          title: Device Type
+        browser:
+          type: string
+          title: Browser
+        os:
+          type: string
+          title: Os
+        clicks:
+          type: integer
+          title: Clicks
+      type: object
+      required:
+      - device_type
+      - browser
+      - os
+      - clicks
+      title: DeviceBreakdownItem
+      description: One device/browser/OS analytics breakdown item.
+    DeviceBreakdownResponse:
+      properties:
+        link_id:
+          type: integer
+          title: Link Id
+        items:
+          items:
+            $ref: '#/components/schemas/DeviceBreakdownItem'
+          type: array
+          title: Items
+      type: object
+      required:
+      - link_id
+      - items
+      title: DeviceBreakdownResponse
+      description: Device analytics response.
+      example:
+        items:
+        - browser: Chrome
+          clicks: 620
+          device_type: desktop
+          os: Windows
+        link_id: 742910234935296
+    LinkCreate:
+      properties:
+        destination_url:
+          type: string
+          maxLength: 4096
+          minLength: 1
+          title: Destination Url
+        workspace_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+        title:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Title
+        custom_alias:
+          anyOf:
+          - type: string
+            maxLength: 32
+            minLength: 3
+          - type: 'null'
+          title: Custom Alias
+        password:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 8
+          - type: 'null'
+          title: Password
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        strip_tracking_params:
+          type: boolean
+          title: Strip Tracking Params
+          default: true
+      additionalProperties: false
+      type: object
+      required:
+      - destination_url
+      title: LinkCreate
+      description: Request body for creating a short link.
+      example:
+        custom_alias: example-docs
+        destination_url: https://example.com/docs?utm_source=newsletter
+        expires_at: '2026-12-31T23:59:59Z'
+        password: optional-secret
+        strip_tracking_params: true
+        title: Example docs
+    LinkResponse:
+      properties:
+        id:
+          type: integer
+          title: Id
+        workspace_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Workspace Id
+        owner_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Owner Id
+        short_code:
+          type: string
+          title: Short Code
+        destination_url:
+          type: string
+          title: Destination Url
+        title:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Title
+        is_password_protected:
+          type: boolean
+          title: Is Password Protected
+        is_active:
+          type: boolean
+          title: Is Active
+        flagged_reason:
+          anyOf:
+          - type: string
+          - type: 'null'
+          title: Flagged Reason
+        checked_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Checked At
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - workspace_id
+      - owner_id
+      - short_code
+      - destination_url
+      - title
+      - is_password_protected
+      - is_active
+      - flagged_reason
+      - checked_at
+      - expires_at
+      - created_at
+      - updated_at
+      title: LinkResponse
+      description: Response payload for link CRUD endpoints.
+      example:
+        checked_at: '2026-06-15T12:00:00Z'
+        created_at: '2026-06-15T12:00:00Z'
+        destination_url: https://example.com/docs
+        id: 742910234935296
+        is_active: true
+        is_password_protected: false
+        owner_id: d7b5f7a2-8a6c-4a46-9443-6480a4f7aa1e
+        short_code: 2F9xYz
+        title: Example docs
+        updated_at: '2026-06-15T12:00:00Z'
+    LinkUpdate:
+      properties:
+        destination_url:
+          anyOf:
+          - type: string
+            maxLength: 4096
+            minLength: 1
+          - type: 'null'
+          title: Destination Url
+        title:
+          anyOf:
+          - type: string
+            maxLength: 255
+          - type: 'null'
+          title: Title
+        custom_alias:
+          anyOf:
+          - type: string
+            maxLength: 32
+            minLength: 3
+          - type: 'null'
+          title: Custom Alias
+        password:
+          anyOf:
+          - type: string
+            maxLength: 128
+            minLength: 8
+          - type: 'null'
+          title: Password
+        clear_password:
+          type: boolean
+          title: Clear Password
+          default: false
+        is_active:
+          anyOf:
+          - type: boolean
+          - type: 'null'
+          title: Is Active
+        expires_at:
+          anyOf:
+          - type: string
+            format: date-time
+          - type: 'null'
+          title: Expires At
+        strip_tracking_params:
+          type: boolean
+          title: Strip Tracking Params
+          default: true
+      additionalProperties: false
+      type: object
+      title: LinkUpdate
+      description: Request body for updating link metadata or destination.
+      example:
+        expires_at: '2027-01-31T23:59:59Z'
+        is_active: true
+        title: Updated docs link
+    LoginRequest:
+      properties:
+        email:
+          type: string
+          maxLength: 320
+          minLength: 3
+          title: Email
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+      additionalProperties: false
+      type: object
+      required:
+      - email
+      - password
+      title: LoginRequest
+      description: Request body for password login.
+      example:
+        email: ada@example.com
+        password: correct-horse-battery
+    PasswordVerifyRequest:
+      properties:
+        password:
+          type: string
+          maxLength: 128
+          minLength: 1
+          title: Password
+      additionalProperties: false
+      type: object
+      required:
+      - password
+      title: PasswordVerifyRequest
+      description: Request body for password-protected redirect verification.
+      example:
+        password: optional-secret
+    PasswordVerifyResponse:
+      properties:
+        redirect_token:
+          type: string
+          title: Redirect Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        expires_in:
+          type: integer
+          title: Expires In
+      type: object
+      required:
+      - redirect_token
+      - expires_in
+      title: PasswordVerifyResponse
+      description: Response payload for successful redirect password verification.
+      example:
+        expires_in: 600
+        redirect_token: eyJhbGciOiJIUzI1NiJ9...
+        token_type: bearer
+    RefreshRequest:
+      properties:
+        refresh_token:
+          type: string
+          minLength: 1
+          title: Refresh Token
+      additionalProperties: false
+      type: object
+      required:
+      - refresh_token
+      title: RefreshRequest
+      description: Request body for refresh-token rotation or logout.
+      example:
+        refresh_token: eyJhbGciOiJIUzI1NiJ9...
+    RegisterRequest:
+      properties:
+        email:
+          type: string
+          maxLength: 320
+          minLength: 3
+          title: Email
+        password:
+          type: string
+          maxLength: 128
+          minLength: 8
+          title: Password
+      additionalProperties: false
+      type: object
+      required:
+      - email
+      - password
+      title: RegisterRequest
+      description: Request body for creating a password-backed user account.
+      example:
+        email: ada@example.com
+        password: correct-horse-battery
+    TimeseriesPoint:
+      properties:
+        date:
+          type: string
+          format: date
+          title: Date
+        clicks:
+          type: integer
+          title: Clicks
+      type: object
+      required:
+      - date
+      - clicks
+      title: TimeseriesPoint
+      description: One time-series analytics point.
+    TimeseriesResponse:
+      properties:
+        link_id:
+          type: integer
+          title: Link Id
+        granularity:
+          type: string
+          title: Granularity
+        points:
+          items:
+            $ref: '#/components/schemas/TimeseriesPoint'
+          type: array
+          title: Points
+      type: object
+      required:
+      - link_id
+      - granularity
+      - points
+      title: TimeseriesResponse
+      description: Time-series analytics response.
+      example:
+        granularity: day
+        link_id: 742910234935296
+        points:
+        - clicks: 42
+          date: '2026-06-14'
+        - clicks: 58
+          date: '2026-06-15'
+    TokenResponse:
+      properties:
+        access_token:
+          type: string
+          title: Access Token
+        refresh_token:
+          type: string
+          title: Refresh Token
+        token_type:
+          type: string
+          title: Token Type
+          default: bearer
+        expires_in:
+          type: integer
+          title: Expires In
+      type: object
+      required:
+      - access_token
+      - refresh_token
+      - expires_in
+      title: TokenResponse
+      description: Access and refresh JWT response.
+      example:
+        access_token: eyJhbGciOiJIUzI1NiJ9...
+        expires_in: 900
+        refresh_token: eyJhbGciOiJIUzI1NiJ9...
+        token_type: bearer
+    WorkspaceCreate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: WorkspaceCreate
+      description: Request body for creating a workspace.
+      example:
+        name: Engineering
+    WorkspaceMemberCreate:
+      properties:
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        role:
+          type: string
+          title: Role
+          default: viewer
+      additionalProperties: false
+      type: object
+      required:
+      - user_id
+      title: WorkspaceMemberCreate
+      description: Request body for adding a workspace member.
+      example:
+        role: editor
+        user_id: 29e61574-f3ae-4f08-8ba4-c770659d0d6e
+    WorkspaceMemberResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        workspace_id:
+          type: string
+          format: uuid
+          title: Workspace Id
+        user_id:
+          type: string
+          format: uuid
+          title: User Id
+        role:
+          type: string
+          title: Role
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+      type: object
+      required:
+      - id
+      - workspace_id
+      - user_id
+      - role
+      - created_at
+      title: WorkspaceMemberResponse
+      description: Workspace member response payload.
+      example:
+        created_at: '2026-06-15T12:00:00Z'
+        id: f88a2925-71e2-4144-9450-44af3a7d12ab
+        role: editor
+        user_id: 29e61574-f3ae-4f08-8ba4-c770659d0d6e
+        workspace_id: b9300502-d860-4d26-ad73-4f88724f9fb0
+    WorkspaceMemberUpdate:
+      properties:
+        role:
+          type: string
+          title: Role
+      additionalProperties: false
+      type: object
+      required:
+      - role
+      title: WorkspaceMemberUpdate
+      description: Request body for updating a workspace member role.
+      example:
+        role: viewer
+    WorkspaceResponse:
+      properties:
+        id:
+          type: string
+          format: uuid
+          title: Id
+        name:
+          type: string
+          title: Name
+        owner_id:
+          anyOf:
+          - type: string
+            format: uuid
+          - type: 'null'
+          title: Owner Id
+        created_at:
+          type: string
+          format: date-time
+          title: Created At
+        updated_at:
+          type: string
+          format: date-time
+          title: Updated At
+      type: object
+      required:
+      - id
+      - name
+      - owner_id
+      - created_at
+      - updated_at
+      title: WorkspaceResponse
+      description: Workspace response payload.
+      example:
+        created_at: '2026-06-15T12:00:00Z'
+        id: b9300502-d860-4d26-ad73-4f88724f9fb0
+        name: Engineering
+        owner_id: d7b5f7a2-8a6c-4a46-9443-6480a4f7aa1e
+        updated_at: '2026-06-15T12:00:00Z'
+    WorkspaceUpdate:
+      properties:
+        name:
+          type: string
+          maxLength: 120
+          minLength: 1
+          title: Name
+      additionalProperties: false
+      type: object
+      required:
+      - name
+      title: WorkspaceUpdate
+      description: Request body for updating workspace metadata.
+      example:
+        name: Platform Engineering
+  securitySchemes:
+    OAuth2PasswordBearer:
+      type: oauth2
+      flows:
+        password:
+          scopes: {}
+          tokenUrl: /api/v1/auth/login

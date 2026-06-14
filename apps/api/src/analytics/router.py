@@ -20,10 +20,28 @@ from src.models.user import User
 from src.shared.rate_limiter import rate_limit
 
 
-router = APIRouter(prefix="/api/v1/analytics", tags=["analytics"])
+router = APIRouter(
+    prefix="/api/v1/analytics",
+    tags=["analytics"],
+    responses={
+        401: {"description": "Authentication is required."},
+        403: {"description": "The current user cannot access this link."},
+        404: {"description": "Link not found."},
+        422: {"description": "Request validation failed."},
+        429: {"description": "Rate limit exceeded."},
+    },
+)
 
 
-@router.get("/{link_id}/summary", response_model=AnalyticsSummaryResponse)
+@router.get(
+    "/{link_id}/summary",
+    response_model=AnalyticsSummaryResponse,
+    summary="Get analytics summary",
+    description=(
+        "Return total clicks for a link using the denormalized link counter. "
+        "Unique clicks are not tracked yet and are reported as unavailable."
+    ),
+)
 async def get_summary(
     link_id: int,
     current_user: Annotated[User, Depends(rate_limit("read"))],
@@ -43,7 +61,15 @@ async def get_summary(
     )
 
 
-@router.get("/{link_id}/timeseries", response_model=TimeseriesResponse)
+@router.get(
+    "/{link_id}/timeseries",
+    response_model=TimeseriesResponse,
+    summary="Get click time series",
+    description=(
+        "Return daily click counts for a link from the aggregate analytics table. "
+        "Dashboard queries never read raw click events."
+    ),
+)
 async def get_timeseries(
     link_id: int,
     current_user: Annotated[User, Depends(rate_limit("read"))],
@@ -62,7 +88,12 @@ async def get_timeseries(
     )
 
 
-@router.get("/{link_id}/geo", response_model=BreakdownResponse)
+@router.get(
+    "/{link_id}/geo",
+    response_model=BreakdownResponse,
+    summary="Get geo breakdown",
+    description="Return aggregated click counts grouped by country.",
+)
 async def get_geo(
     link_id: int,
     current_user: Annotated[User, Depends(rate_limit("read"))],
@@ -77,7 +108,12 @@ async def get_geo(
     )
 
 
-@router.get("/{link_id}/devices", response_model=DeviceBreakdownResponse)
+@router.get(
+    "/{link_id}/devices",
+    response_model=DeviceBreakdownResponse,
+    summary="Get device breakdown",
+    description="Return aggregated click counts grouped by device, browser, and OS.",
+)
 async def get_devices(
     link_id: int,
     current_user: Annotated[User, Depends(rate_limit("read"))],

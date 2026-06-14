@@ -1,326 +1,238 @@
-# Architecture Decision Record: Distributed Link Intelligence Platform
+# DEVLINK Architecture
 
-## Status
+DEVLINK is a production-oriented URL shortener with authenticated link
+management, Redis-backed redirect caching, asynchronous click analytics, and a
+React dashboard.
 
-Accepted for initial implementation.
+This document reflects the current implementation. The original Phase 0 plan
+evolved as features were built; deviations are called out near the end.
 
-## Context
-
-We are building a production-grade URL shortener with analytics, operational reliability, and a roadmap beyond a TinyURL-style clone. This document is the source of truth for the initial monorepo scaffold and high-level implementation direction.
-
-## Assumptions
-
-- The first production target is a horizontally scalable web/API deployment backed by managed PostgreSQL, Redis, and Kafka-compatible infrastructure.
-- Local development should be runnable on one machine with Docker Compose for shared dependencies only.
-- The API and redirect path start in one FastAPI service, with code organized so the redirect hot path can be split into a dedicated service later if traffic requires it.
-- Authentication will be added after core anonymous link creation and redirect behavior are working.
-- Analytics events are eventually consistent; redirect latency must not depend on analytics writes.
-- Kafka is the preferred event bus. RabbitMQ remains a fallback only if Kafka becomes too heavy for a target environment.
-
-## High-Level Architecture
+## System Overview
 
 ```text
-                         +----------------------+
-                         |  React + TypeScript  |
-                         |  Frontend (apps/web) |
-                         +----------+-----------+
-                                    |
-                                    | HTTPS JSON API
-                                    v
-                         +----------------------+
-                         | FastAPI API Service  |
-                         | apps/api             |
-                         | - link CRUD          |
-                         | - auth (future)      |
-                         | - redirect endpoint  |
-                         +----+------------+----+
-                              |            |
-                primary data  |            | cache/rate limits
-                              v            v
-                       +------+---+    +---+------+
-                       |PostgreSQL|    |  Redis   |
-                       +------+---+    +---+------+
-                              |
-                              | async click event publish
-                              v
-                       +------+------+
-                       |   Kafka     |
-                       +------+------+
-                              |
-                              | consume analytics events
-                              v
-                  +-----------+------------+
-                  | Analytics Worker       |
-                  | apps/analytics-worker  |
-                  | - aggregate clicks     |
-                  | - enrich events        |
-                  | - persist rollups      |
-                  +-----------+------------+
-                              |
-                              v
-                       +------+---+
-                       |PostgreSQL|
-                       +----------+
+Browser
+  |
+  | React app, JSON API, redirects
+  v
++-------------------+        +-------------------+
+| apps/web          |        | apps/api          |
+| React + Vite      |------->| FastAPI           |
+| dashboard UI      |        | auth, links, RBAC |
++-------------------+        | redirect, metrics |
+                             +----+-----+----+---+
+                                  |     |    |
+                         Postgres |     |    | Redis cache/rate limits
+                                  v     |    v
+                           +------+--+  | +--+------+
+                           | Postgres|  | | Redis   |
+                           +------+--+  | +---------+
+                                  ^     |
+                                  |     | Kafka click event
+                                  |     v
+                            +-----+-----+---------+
+                            | apps/analytics-worker|
+                            | consume, enrich,     |
+                            | aggregate clicks     |
+                            +----------------------+
 ```
 
-### Components
+## Applications
 
-- **API service:** FastAPI application responsible for link CRUD, health checks, auth once added, and publishing analytics events.
-- **Redirect hot path:** Initially implemented in the API service as a dedicated endpoint optimized for low latency. It should read from Redis first, fall back to PostgreSQL, publish analytics asynchronously, and return redirects quickly.
-- **Analytics worker:** Python service that consumes click events from Kafka and writes normalized events and aggregate rollups to PostgreSQL.
-- **Frontend:** React + TypeScript app for link management, dashboards, and account workflows.
-- **Infrastructure:** Docker Compose for local PostgreSQL, Redis, and Kafka. Application services are run directly during local development.
+- `apps/api`: FastAPI service. It owns authentication, link CRUD, workspace
+  RBAC, public redirects, QR code generation, analytics read APIs, URL safety
+  checks, rate limiting, structured logs, and Prometheus `/metrics`.
+- `apps/analytics-worker`: async Python worker. It consumes click events,
+  enriches them with GeoIP/user-agent parsing, writes raw event rows, and updates
+  daily aggregates idempotently.
+- `apps/web`: React + TypeScript Vite app. It handles auth, link dashboard,
+  bulk shortening, QR preview, and analytics charts.
+- `infra`: Docker Compose, production-like Compose, Terraform for AWS ECS/RDS/
+  Redis/ALB, GitHub Actions CI/CD, and deployment scripts.
 
-## Tech Stack Decisions
+## API Surface
 
-- **Backend:** FastAPI with Python. FastAPI provides high-performance async request handling, OpenAPI generation, type-driven validation through Pydantic, and a mature ecosystem.
-- **Primary storage:** PostgreSQL. It provides relational integrity, transactional link management, indexing, JSON support for metadata, and strong operational familiarity.
-- **Cache and rate limiting:** Redis. It is suitable for short-code lookups, TTL-based caching, counters, distributed locks, and sliding-window or token-bucket rate limiting.
-- **Async event processing:** Kafka. Click events are append-heavy and analytics consumers may evolve independently. Kafka gives durable ordered partitions and replay capability. For local development we use a single-node KRaft Kafka container to avoid ZooKeeper. RabbitMQ is a fallback only if a deployment environment cannot support Kafka.
-- **Frontend:** React + TypeScript with Vite. This keeps the client fast to develop, strongly typed, and easy to evolve into a dashboard-heavy product.
-- **Python dependency management:** Poetry. It keeps dependency metadata, project scripts, virtualenv workflows, and packaging configuration in `pyproject.toml`, which matches the monorepo goal of independently runnable apps.
+The API exposes:
 
-## Analytics Event Delivery
+- `GET /health`
+- `GET /metrics` for internal Prometheus scraping
+- `/api/v1/auth/*` for register/login/refresh/logout and Google OAuth stubs
+- `/api/v1/links/*` for link CRUD, bulk creation, and QR images
+- `/api/v1/workspaces/*` for workspace and member management
+- `/api/v1/analytics/{link_id}/*` for dashboard analytics
+- `/r/{short_code}` and `/r/{short_code}/verify` for public redirects
 
-Redirects publish click events to Kafka asynchronously after the redirect target is
-resolved. Producer failures are logged and must not fail the redirect response.
+The generated OpenAPI spec is checked in at `docs/api-spec.yaml`.
 
-Kafka is the buffer when the analytics worker is down or the database is slow.
-Production deployments must set topic retention and disk capacity for the maximum
-acceptable worker outage window. The worker commits offsets only after malformed
-messages are logged/skipped or after database writes commit, so slow writes apply
-consumer backpressure without blocking redirects.
+## Data Model
 
-Click events include an `event_id` for idempotency. The worker inserts the raw
-event first using conflict handling and increments aggregates only when that insert
-succeeds. Replayed Kafka messages therefore do not double-count rollups.
+Implemented PostgreSQL tables:
 
-Privacy rule: raw IP addresses must not be stored in PostgreSQL. The API
-anonymizes IPs before publishing to Kafka for coarse geo lookup, and the worker
-stores only a SHA-256 hash with a daily salt. Full referrer URLs are reduced to
-domains before persistence.
+- `users`: UUID primary key, normalized unique email, password hash, timestamps.
+- `refresh_tokens`: hashed refresh tokens with expiry/revocation metadata.
+- `workspaces`: workspace owner and timestamps.
+- `workspace_members`: role membership with `owner`, `admin`, `editor`,
+  `viewer`.
+- `links`: Snowflake-style bigint ID, Base62 `short_code`, owner/workspace,
+  destination URL, `long_url_hash`, password hash, active/expiration flags,
+  safety metadata, denormalized `click_count`, timestamps.
+- `click_events`: range-partitioned by `clicked_at`, keyed by `(id, clicked_at)`,
+  stores privacy-preserving IP hash, parsed geo/device fields, referrer domain,
+  and metadata JSON.
+- `link_analytics_daily`: aggregate rollups by link/date/country/device/browser/
+  OS/referrer domain.
 
-## URL Safety Checks
+Important indexes include:
 
-Link creation performs URL safety checks asynchronously so the API can return
-quickly even when an external provider is slow. Google Safe Browsing v4 is the
-initial provider when `GOOGLE_SAFE_BROWSING_API_KEY` is configured; local
-development uses the same provider interface with a no-key fallback that can
-flag Google's public Safe Browsing test URLs.
+- Unique `links.short_code` for redirect lookup.
+- `links.long_url_hash` for deduplication.
+- Link listing indexes by owner/workspace/created time and expiration filters.
+- `click_events(link_id, clicked_at)` for event access and retention.
+- `link_analytics_daily` composite primary key for idempotent aggregate upserts.
 
-The system intentionally fails open on provider failure or timeout: links remain
-active with `checked_at` unset and are retried by a scheduled maintenance job.
-This avoids coupling link creation latency and availability to a third-party
-security API. If a later check marks a URL malicious, the link is disabled,
-`flagged_reason` is set, and the Redis redirect cache is invalidated.
+## Redirect Hot Path
 
-Maintenance jobs are idempotent and concurrency-safe. Expiration scans and
-pending safety retries claim rows using PostgreSQL `FOR UPDATE SKIP LOCKED`, so
-multiple scheduler instances can run without double-processing the same batch.
+Redirect flow:
 
-## ID Generation Strategy
+1. Apply Redis redirect rate limit.
+2. Lookup `link:{short_code}` in Redis.
+3. On miss, query PostgreSQL and populate Redis with TTL bounded by expiration.
+4. Reject inactive/expired/flagged links.
+5. For password-protected links, require a short-lived signed redirect token.
+6. Log redirect timing and publish a click event in a background task.
+7. Return `307 Temporary Redirect`.
 
-Short links use a Snowflake-style numeric ID encoded with Base62.
+The redirect handler does not wait for analytics database writes.
 
-### Snowflake-Style ID Layout
+## ID Generation
 
-The generated integer is composed from time and machine-local sequence fields:
+Links use a Snowflake-style 64-bit integer:
 
 ```text
-| timestamp milliseconds since custom epoch | worker id | sequence |
+timestamp milliseconds since custom epoch | worker id | sequence
 ```
 
-- **Timestamp:** Monotonic millisecond timestamp relative to a custom epoch. This keeps IDs roughly sortable by creation time.
-- **Worker ID:** Identifies the API instance or ID generator node. In local development this can default to `1`; production must assign stable unique worker IDs.
-- **Sequence:** Incremented per millisecond for IDs generated on the same worker. If the sequence overflows within the same millisecond, generation waits for the next millisecond.
+The integer is Base62-encoded into the public short code. This gives compact,
+URL-safe, mostly time-sortable IDs without a central database sequence on the
+hot creation path. The worker ID is currently environment-driven.
 
-### Base62 Encoding
+## Caching And Rate Limiting
 
-The integer ID is encoded using Base62 characters:
+Redis is used for:
 
-```text
-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
-```
+- `short_code -> link metadata` cache.
+- QR code image cache.
+- Redirect abuse limits.
+- Password verification attempt limits.
+- Application-level read/write/bulk API limits.
 
-Base62 keeps codes URL-safe, compact, case-sensitive, and free of punctuation. The database stores both the numeric ID and the generated short code. A unique index on `short_code` protects against implementation or configuration mistakes.
+Link updates, deletes, expiration jobs, and URL safety flagging invalidate
+affected redirect cache entries.
 
-## Core Database Schema Design
+## Analytics Pipeline
 
-No migrations are included in the initial scaffold. The intended schema is:
+Redirects publish click events to Kafka with:
 
-### `users`
+- `event_id` for idempotency.
+- `correlation_id` for log tracing.
+- `link_id`, timestamp, coarse anonymized IP, user-agent, referrer.
 
-- `id`: UUID primary key.
-- `email`: unique, indexed, case-normalized.
-- `password_hash`: nullable until auth is implemented.
-- `created_at`, `updated_at`.
-- Relationship: one user has many links.
+The worker commits Kafka offsets only after malformed messages are skipped or
+database writes commit. Raw click event insertion uses conflict handling; daily
+aggregates and `links.click_count` are incremented only when the raw insert is
+new. Duplicate delivery therefore does not double-count analytics.
 
-### `links`
+Privacy choices:
 
-- `id`: bigint primary key generated by Snowflake-style generator.
-- `owner_id`: nullable foreign key to `users.id` for anonymous or pre-auth links.
-- `short_code`: unique, indexed, non-null.
-- `destination_url`: non-null.
-- `title`: nullable display name.
-- `is_active`: boolean, indexed.
-- `expires_at`: nullable, indexed.
-- `created_at`, `updated_at`.
-- Indexes: unique `short_code`; composite `(owner_id, created_at DESC)`; partial or composite index for active, unexpired redirects.
+- Raw IPs are not persisted.
+- IPs are hashed with a daily salt before storage.
+- Referrers are reduced to domains.
+- Full user-agent strings are parsed, then omitted from persistence.
 
-### `click_events`
+## Auth And Authorization
 
-- `id`: UUID primary key.
-- `link_id`: foreign key to `links.id`, indexed.
-- `occurred_at`: timestamp, indexed.
-- `ip_hash`: privacy-preserving hash of IP address.
-- `user_agent`: raw or parsed user agent string.
-- `referer`: nullable.
-- `country`, `region`, `city`: nullable enrichment fields.
-- `device_type`, `browser`, `os`: nullable parsed fields.
-- Indexes: `(link_id, occurred_at DESC)` and time-based index for retention jobs.
+Auth uses password login plus JWT access/refresh tokens:
 
-### `link_daily_stats`
+- Access tokens are short-lived.
+- Refresh tokens are rotated and stored hashed for revocation/reuse prevention.
+- Password hashes use Passlib bcrypt.
+- Protected endpoints use FastAPI dependencies for current-user lookup.
 
-- `link_id`: foreign key to `links.id`.
-- `stat_date`: date.
-- `click_count`: integer.
-- Optional dimension columns such as `country`, `device_type`, or `referer_domain`.
-- Primary key: `(link_id, stat_date)` for simple daily totals, or expanded composite key if dimensions are included.
+Workspace RBAC supports `owner > admin > editor > viewer`. Link access is allowed
+for link owners or users with sufficient workspace membership.
 
-### `api_keys` (future)
+## URL Safety And Expiration
 
-- `id`: UUID primary key.
-- `user_id`: foreign key to `users.id`.
-- `key_hash`: unique, indexed.
-- `name`, `last_used_at`, `created_at`, `revoked_at`.
+URL creation validates HTTP(S) URLs and rejects localhost/private-network targets
+unless explicitly allowed for local development.
 
-## API Surface Overview
+Google Safe Browsing is implemented behind a mockable provider interface. Link
+creation fails open with a tight timeout to preserve latency; pending checks are
+retried by maintenance jobs. Flagged links are marked inactive, given a
+`flagged_reason`, and removed from cache.
 
-- `GET /health` - service health check.
-- `POST /api/v1/links` - create a short link.
-- `GET /api/v1/links` - list links for current user.
-- `GET /api/v1/links/{short_code}` - get link details.
-- `PATCH /api/v1/links/{short_code}` - update link metadata or destination.
-- `DELETE /api/v1/links/{short_code}` - deactivate or delete a link.
-- `GET /{short_code}` - redirect hot path.
-- `GET /api/v1/links/{short_code}/analytics` - retrieve analytics summary.
-- `POST /api/v1/auth/register` - future user registration.
-- `POST /api/v1/auth/login` - future login.
-- `POST /api/v1/auth/refresh` - future token refresh.
+Expiration maintenance marks expired links inactive and invalidates cache. Jobs
+use `FOR UPDATE SKIP LOCKED` to stay safe under multiple workers.
 
-## Monorepo Folder Structure
+## Observability
 
-```text
-.
-+-- apps
-|   +-- api
-|   |   +-- app
-|   |   |   +-- api
-|   |   |   |   +-- v1
-|   |   |   +-- core
-|   |   |   +-- main.py
-|   |   +-- tests
-|   |   +-- .env.example
-|   |   +-- pyproject.toml
-|   +-- analytics-worker
-|   |   +-- worker
-|   |   |   +-- worker.py
-|   |   +-- tests
-|   |   +-- pyproject.toml
-|   +-- web
-|       +-- src
-|       |   +-- pages
-|       |   +-- routes
-|       |   +-- styles
-|       |   +-- App.tsx
-|       |   +-- main.tsx
-|       +-- index.html
-|       +-- package.json
-|       +-- tsconfig.json
-|       +-- tsconfig.node.json
-|       +-- vite.config.ts
-|       +-- .env.example
-+-- docs
-|   +-- ARCHITECTURE.md
-+-- infra
-|   +-- docker-compose.yml
-+-- .gitignore
-+-- README.md
-```
+Implemented:
 
-## Coding Standards
+- JSON logs for API and worker with timestamp, level, service, logger, message,
+  correlation ID, event ID, and link ID where relevant.
+- Correlation ID middleware propagates `X-Correlation-ID` / `X-Request-ID`.
+- API Prometheus `/metrics`.
+- Worker Prometheus metrics on port `9101`.
+- Terraform CloudWatch log groups, Container Insights, dashboard, and alarms.
 
-### Python
+See `docs/MONITORING.md`.
 
-- Follow PEP 8.
-- Use type hints for public functions and meaningful internal boundaries.
-- Format with Black and lint with Ruff.
-- Use Pydantic settings/models for environment-driven configuration.
-- Prefer dependency injection boundaries for database, cache, event producer, and auth services.
+## Deployment
 
-### TypeScript
+Local development:
 
-- Enable TypeScript strict mode.
-- Use ESLint and Prettier.
-- Keep route components small and move shared UI or API client code into dedicated modules as the app grows.
-- Avoid unchecked `any`; prefer typed API contracts.
+- `infra/docker-compose.yml` starts Postgres, Redis, Kafka.
+- API, worker, and web can run directly.
 
-### Commit Messages
+Production simulation:
 
-Use Conventional Commits:
+- `infra/docker-compose.prod.yml` builds API, worker, web, Postgres, Redis,
+  Kafka, and nginx.
 
-- `feat: add link creation endpoint`
-- `fix: prevent expired link redirects`
-- `docs: update architecture roadmap`
-- `test: add redirect cache integration test`
-- `chore: update local compose services`
+AWS path:
 
-### Testing Philosophy
+- Terraform provisions VPC, ALB, ECS Fargate services, RDS Postgres,
+  ElastiCache Redis, CloudWatch logs/alarms, and a low-cost Kafka-compatible
+  broker task.
+- GitHub Actions builds images, pushes to GHCR, and updates ECS services.
 
-- Unit tests for pure business logic, ID generation, Base62 encoding, validation, and UI components.
-- Integration tests for API/database behavior, Redis caching, Kafka publishing/consuming, and redirect behavior.
-- Target coverage: at least 80% line coverage for backend and worker code, with higher coverage around ID generation and redirect logic.
-- Frontend coverage should focus on route behavior, form validation, API client states, and dashboard rendering.
+See `docs/DEPLOYMENT.md`.
 
-### Test Execution Strategy
+## Testing
 
-- **Backend unit tests:** Run without Docker or network access. They cover pure
-  logic such as Snowflake/Base62 generation, URL normalization/hashing, and
-  Redis-backed rate limit behavior using fakes.
-- **Backend integration tests:** Marked `integration` and require
-  `TEST_DATABASE_URL` pointing at a disposable PostgreSQL database. The test
-  session applies Alembic migrations and truncates tables between tests. External
-  providers such as Google Safe Browsing, Redis, and Kafka are mocked or faked so
-  CI does not need outbound network access.
-- **Analytics worker tests:** Call worker functions directly against the same
-  migrated test database. Kafka delivery is represented by constructing
-  `ClickEventMessage` objects, which keeps idempotency tests deterministic.
-- **Frontend tests:** Use Vitest with React Testing Library and mocked API
-  modules. Component tests cover link creation form behavior and analytics
-  rendering with representative dashboard data.
+Implemented test coverage includes:
 
-Typical local commands:
+- Unit tests for ID generation, URL normalization/safety, auth security, rate
+  limiting, redirect service behavior, maintenance jobs, and schema validation.
+- Integration tests for auth/workspaces, links, and redirects when
+  `TEST_DATABASE_URL` is configured.
+- Worker idempotency integration test when a test database is configured.
+- Frontend Vitest/React Testing Library tests for link creation and analytics UI.
 
-```text
-cd apps/api && pytest
-cd apps/api && pytest --cov
-cd apps/analytics-worker && pytest
-cd apps/analytics-worker && pytest --cov
-cd apps/web && npm test
-```
+CI runs lint/type-check/test gates and enforces configured coverage thresholds.
 
-For database-backed tests, start local dependencies and set
-`TEST_DATABASE_URL=postgresql+asyncpg://devlink:devlink@localhost:5432/devlink_test`.
+## Deviations From The Original Plan
 
-## Phased Build Roadmap
-
-1. **Core link CRUD:** Implement link model, migrations, repository layer, create/list/read/update/delete endpoints, and validation.
-2. **Redirect engine:** Add `GET /{short_code}`, expiration handling, active-state checks, and redirect response behavior.
-3. **Auth:** Add users, password hashing or external identity provider integration, JWT access/refresh tokens, and owner-scoped link access.
-4. **Caching:** Add Redis short-code cache, cache invalidation on link updates, and API/redirect rate limiting.
-5. **Analytics pipeline:** Publish click events to Kafka, consume in analytics worker, persist raw events, and maintain rollups.
-6. **Frontend:** Build link creation, link list, edit/deactivate flows, auth screens, and analytics dashboard.
-7. **Advanced features:** Custom aliases, QR codes, branded domains, UTM builder, webhook notifications, API keys, and team workspaces.
-8. **Hardening:** Add observability, structured logs, metrics, tracing, security headers, abuse detection, privacy controls, backups, and retention jobs.
-9. **Deployment:** Containerize apps, provision managed services, configure CI/CD, run migrations, add health/readiness checks, and document runbooks.
+- Auth, workspaces, analytics, URL safety, observability, and deployment were
+  implemented earlier than the original scaffold-only architecture described.
+- The public redirect path is `/r/{short_code}` instead of root `/{short_code}`
+  to avoid collisions with frontend routes and API docs.
+- The AWS minimal deployment uses a single lightweight Kafka-compatible ECS task
+  instead of MSK because MSK is expensive for a solo portfolio project. MSK
+  remains the scale-up recommendation.
+- ECS tasks in the minimal Terraform path use public IPs behind security groups
+  to avoid NAT Gateway cost. A production-scale deployment should move tasks to
+  private subnets with NAT or VPC endpoints.
+- Google OAuth endpoints are documented stubs because real OAuth requires client
+  credentials and callback configuration.
+- Unique click counting is intentionally not implemented yet; analytics reports
+  total clicks and documents the limitation.

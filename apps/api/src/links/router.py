@@ -27,10 +27,32 @@ from src.shared.cache import get_qr_cache, set_qr_cache
 from src.shared.rate_limiter import rate_limit
 
 
-router = APIRouter(prefix="/api/v1/links", tags=["links"])
+router = APIRouter(
+    prefix="/api/v1/links",
+    tags=["links"],
+    responses={
+        400: {"description": "Invalid alias, URL, expiration, or request payload."},
+        401: {"description": "Authentication is required."},
+        403: {"description": "The current user cannot access this link/workspace."},
+        404: {"description": "Link not found."},
+        409: {"description": "Custom alias already exists."},
+        410: {"description": "The public link is inactive or expired."},
+        422: {"description": "Request validation failed."},
+        429: {"description": "Rate limit exceeded."},
+    },
+)
 
 
-@router.post("", response_model=LinkResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=LinkResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a short link",
+    description=(
+        "Create a short link for the authenticated user. Duplicate normalized "
+        "URLs are deduplicated unless a custom alias is requested."
+    ),
+)
 async def create_link(
     payload: LinkCreate,
     background_tasks: BackgroundTasks,
@@ -52,7 +74,15 @@ async def create_link(
     return LinkResponse.model_validate(link)
 
 
-@router.post("/bulk", response_model=BulkLinkCreateResponse)
+@router.post(
+    "/bulk",
+    response_model=BulkLinkCreateResponse,
+    summary="Bulk-create short links",
+    description=(
+        "Shorten up to 50 URLs and return per-item success/error results. "
+        "Partial failures do not fail the whole request."
+    ),
+)
 async def bulk_create_links(
     payload: BulkLinkCreateRequest,
     background_tasks: BackgroundTasks,
@@ -70,7 +100,12 @@ async def bulk_create_links(
     return BulkLinkCreateResponse(results=results)
 
 
-@router.get("", response_model=list[LinkResponse])
+@router.get(
+    "",
+    response_model=list[LinkResponse],
+    summary="List links",
+    description="List links visible to the authenticated user with offset pagination.",
+)
 async def list_links(
     session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(rate_limit("read"))],
@@ -89,7 +124,14 @@ async def list_links(
     return [LinkResponse.model_validate(link) for link in links]
 
 
-@router.get("/{short_code}/qr")
+@router.get(
+    "/{short_code}/qr",
+    summary="Get link QR code",
+    description=(
+        "Return a cached PNG or SVG QR code for a public redirect URL. This "
+        "endpoint is public but only returns QR codes for available links."
+    ),
+)
 async def get_link_qr(
     short_code: str,
     request: Request,
@@ -118,7 +160,14 @@ async def get_link_qr(
     return _qr_response(image, image_format, "MISS")
 
 
-@router.get("/{link_id}", response_model=LinkResponse)
+@router.get(
+    "/{link_id}",
+    response_model=LinkResponse,
+    summary="Get a link",
+    description=(
+        "Return one link by numeric ID if the authenticated user can access it."
+    ),
+)
 async def get_link(
     link_id: int,
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -147,7 +196,15 @@ def _qr_response(image: bytes, image_format: str, cache_status: str) -> Response
     )
 
 
-@router.patch("/{link_id}", response_model=LinkResponse)
+@router.patch(
+    "/{link_id}",
+    response_model=LinkResponse,
+    summary="Update a link",
+    description=(
+        "Update link metadata, destination, alias, password, active state, or "
+        "expiration. Destination changes trigger a new asynchronous safety check."
+    ),
+)
 async def update_link(
     link_id: int,
     payload: LinkUpdate,
@@ -178,7 +235,12 @@ async def update_link(
     return LinkResponse.model_validate(link)
 
 
-@router.delete("/{link_id}", response_model=LinkResponse)
+@router.delete(
+    "/{link_id}",
+    response_model=LinkResponse,
+    summary="Soft-delete a link",
+    description="Mark a link inactive and invalidate redirect cache entries.",
+)
 async def delete_link(
     link_id: int,
     session: Annotated[AsyncSession, Depends(get_session)],

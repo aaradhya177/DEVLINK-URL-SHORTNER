@@ -16,7 +16,19 @@ class LinkCreate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
     expires_at: datetime | None = None
     strip_tracking_params: bool = True
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "destination_url": "https://example.com/docs?utm_source=newsletter",
+                "title": "Example docs",
+                "custom_alias": "example-docs",
+                "password": "optional-secret",
+                "expires_at": "2026-12-31T23:59:59Z",
+                "strip_tracking_params": True,
+            }
+        },
+    )
 
     @field_validator("destination_url")
     @classmethod
@@ -36,7 +48,16 @@ class LinkUpdate(BaseModel):
     is_active: bool | None = None
     expires_at: datetime | None = None
     strip_tracking_params: bool = True
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "title": "Updated docs link",
+                "expires_at": "2027-01-31T23:59:59Z",
+                "is_active": True,
+            }
+        },
+    )
 
     @field_validator("destination_url")
     @classmethod
@@ -62,7 +83,26 @@ class LinkResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "example": {
+                "id": 742910234935296,
+                "workspace_id": None,
+                "owner_id": "d7b5f7a2-8a6c-4a46-9443-6480a4f7aa1e",
+                "short_code": "2F9xYz",
+                "destination_url": "https://example.com/docs",
+                "title": "Example docs",
+                "is_password_protected": False,
+                "is_active": True,
+                "flagged_reason": None,
+                "checked_at": "2026-06-15T12:00:00Z",
+                "expires_at": None,
+                "created_at": "2026-06-15T12:00:00Z",
+                "updated_at": "2026-06-15T12:00:00Z",
+            }
+        },
+    )
 
 
 class BulkLinkCreateRequest(BaseModel):
@@ -71,7 +111,18 @@ class BulkLinkCreateRequest(BaseModel):
     urls: list[str] = Field(min_length=1, max_length=50)
     workspace_id: uuid.UUID | None = None
     strip_tracking_params: bool = True
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "urls": [
+                    "https://example.com/a",
+                    "https://example.com/b?utm_campaign=launch",
+                ],
+                "strip_tracking_params": True,
+            }
+        },
+    )
 
     @field_validator("urls")
     @classmethod

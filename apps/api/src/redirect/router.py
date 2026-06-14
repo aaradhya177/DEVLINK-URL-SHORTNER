@@ -23,10 +23,33 @@ from src.shared.correlation import get_request_correlation_id
 from src.shared.kafka_producer import publish_click_event
 
 
-router = APIRouter(prefix="/r", tags=["redirect"])
+router = APIRouter(
+    prefix="/r",
+    tags=["redirect"],
+    responses={
+        401: {
+            "description": (
+                "Password-protected redirect token is missing or invalid."
+            )
+        },
+        403: {"description": "Link is blocked for safety reasons."},
+        404: {"description": "Short code not found."},
+        410: {"description": "Link is inactive or expired."},
+        422: {"description": "Request validation failed."},
+        429: {"description": "Redirect or password verification rate limit exceeded."},
+    },
+)
 
 
-@router.get("/{short_code}")
+@router.get(
+    "/{short_code}",
+    summary="Resolve a short code",
+    description=(
+        "Public redirect hot path. Looks up link metadata from Redis first, "
+        "falls back to PostgreSQL, records a non-blocking click event, and "
+        "returns a temporary redirect when the link is active."
+    ),
+)
 async def redirect_short_code(
     short_code: str,
     request: Request,
@@ -103,7 +126,15 @@ async def redirect_short_code(
     return response
 
 
-@router.post("/{short_code}/verify", response_model=PasswordVerifyResponse)
+@router.post(
+    "/{short_code}/verify",
+    response_model=PasswordVerifyResponse,
+    summary="Verify a protected redirect",
+    description=(
+        "Verify a password for a protected short link and return a short-lived "
+        "redirect token. Attempts are rate-limited."
+    ),
+)
 async def verify_redirect_password(
     short_code: str,
     payload: PasswordVerifyRequest,
