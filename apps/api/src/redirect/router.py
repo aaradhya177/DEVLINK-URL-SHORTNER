@@ -19,6 +19,7 @@ from app.core.config import settings
 from src.db.session import get_session
 from src.redirect import security, service
 from src.redirect.schemas import PasswordVerifyRequest, PasswordVerifyResponse
+from src.shared.correlation import get_request_correlation_id
 from src.shared.kafka_producer import publish_click_event
 
 
@@ -54,6 +55,7 @@ async def redirect_short_code(
         return _expired_page(short_code)
 
     cached_link = metadata.cached_link
+    correlation_id = get_request_correlation_id(request)
     cookie_token = request.cookies.get(security.redirect_cookie_name(short_code))
     if cached_link.is_password_protected:
         security.require_redirect_token(redirect_token or cookie_token, short_code)
@@ -65,6 +67,7 @@ async def redirect_short_code(
         metadata.cache_status,
         client_id,
         str(event_id),
+        correlation_id,
     )
     background_tasks.add_task(
         publish_click_event,
@@ -74,6 +77,7 @@ async def redirect_short_code(
         request.headers.get("referer"),
         None,
         event_id,
+        correlation_id,
     )
     response = RedirectResponse(
         cached_link.long_url,
@@ -84,6 +88,7 @@ async def redirect_short_code(
         "redirect_timing",
         extra={
             "event_id": str(event_id),
+            "correlation_id": correlation_id,
             "link_id": cached_link.link_id,
             "short_code": short_code,
             "cache": metadata.cache_status,
@@ -117,7 +122,9 @@ async def verify_redirect_password(
         raise HTTPException(
             status_code=429,
             detail=str(exc),
-            headers={"Retry-After": str(settings.redirect_password_attempt_window_seconds)},
+            headers={
+                "Retry-After": str(settings.redirect_password_attempt_window_seconds)
+            },
         ) from exc
     except service.RedirectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -156,7 +163,10 @@ def _blocked_page(short_code: str) -> HTMLResponse:
     return HTMLResponse(
         _status_page_html(
             "Blocked link",
-            f"The short link {short_code} was disabled because it was flagged as unsafe.",
+            (
+                f"The short link {short_code} was disabled because it was flagged "
+                "as unsafe."
+            ),
         ),
         status_code=status.HTTP_403_FORBIDDEN,
     )

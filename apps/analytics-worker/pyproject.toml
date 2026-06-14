@@ -15,6 +15,7 @@ pydantic = "^2.8.0"
 pydantic-settings = "^2.4.0"
 sqlalchemy = { extras = ["asyncio"], version = "^2.0.30" }
 ua-parser = "^1.0.0"
+prometheus-client = "^0.22.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.8.0"

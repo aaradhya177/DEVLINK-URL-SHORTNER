@@ -55,13 +55,23 @@ async def process_click_event(
             "device_type": ua["device_type"],
             "browser": ua["browser"],
             "os": ua["os"],
-            "metadata_json": {"event_id": str(event.event_id)},
+            "metadata_json": {
+                "event_id": str(event.event_id),
+                "correlation_id": event.correlation_id,
+            },
         },
     )
 
     inserted = insert_result.rowcount == 1
     if inserted:
-        await _increment_aggregates(session, event, clicked_at, geo, ua, referrer_domain)
+        await _increment_aggregates(
+            session,
+            event,
+            clicked_at,
+            geo,
+            ua,
+            referrer_domain,
+        )
 
     await session.commit()
     return inserted, (perf_counter() - start) * 1000

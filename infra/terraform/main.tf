@@ -143,6 +143,22 @@ resource "aws_security_group" "ecs" {
   }
 
   ingress {
+    description = "Internal API metrics/debug access from ECS tasks"
+    from_port   = 8000
+    to_port     = 8000
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
+    description = "Internal worker metrics access from ECS tasks"
+    from_port   = 9101
+    to_port     = 9101
+    protocol    = "tcp"
+    self        = true
+  }
+
+  ingress {
     description = "Kafka-compatible broker from ECS tasks"
     from_port   = 9092
     to_port     = 9092
@@ -304,6 +320,11 @@ resource "aws_lb_listener_rule" "redirect" {
 
 resource "aws_ecs_cluster" "this" {
   name = local.name
+
+  setting {
+    name  = "containerInsights"
+    value = "enabled"
+  }
 }
 
 resource "aws_service_discovery_private_dns_namespace" "this" {
@@ -444,7 +465,10 @@ resource "aws_ecs_task_definition" "worker" {
       name        = "analytics-worker"
       image       = local.work_image
       essential   = true
-      environment = concat(local.common_environment, [{ name = "CLICK_EVENTS_TOPIC", value = "click-events" }])
+      environment = concat(local.common_environment, [
+        { name = "CLICK_EVENTS_TOPIC", value = "click-events" },
+        { name = "METRICS_PORT", value = "9101" }
+      ])
       secrets     = local.worker_secrets
       logConfiguration = {
         logDriver = "awslogs"
@@ -600,4 +624,177 @@ resource "aws_ecs_service" "web" {
   }
 
   depends_on = [aws_lb_listener.http]
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_5xx" {
+  alarm_name          = "${local.name}-api-5xx"
+  alarm_description   = "API target group returned too many 5xx responses."
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "HTTPCode_Target_5XX_Count"
+  statistic           = "Sum"
+  period              = 300
+  evaluation_periods  = 1
+  threshold           = 5
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.app.arn_suffix
+    TargetGroup  = aws_lb_target_group.api.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_unhealthy_hosts" {
+  alarm_name          = "${local.name}-api-unhealthy-hosts"
+  alarm_description   = "At least one API target is unhealthy behind the ALB."
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "UnHealthyHostCount"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.app.arn_suffix
+    TargetGroup  = aws_lb_target_group.api.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "web_unhealthy_hosts" {
+  alarm_name          = "${local.name}-web-unhealthy-hosts"
+  alarm_description   = "At least one web target is unhealthy behind the ALB."
+  namespace           = "AWS/ApplicationELB"
+  metric_name         = "UnHealthyHostCount"
+  statistic           = "Maximum"
+  period              = 60
+  evaluation_periods  = 2
+  threshold           = 1
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    LoadBalancer = aws_lb.app.arn_suffix
+    TargetGroup  = aws_lb_target_group.web.arn_suffix
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_cpu_high" {
+  alarm_name          = "${local.name}-rds-cpu-high"
+  alarm_description   = "RDS CPU is high for the minimal Postgres instance."
+  namespace           = "AWS/RDS"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.postgres.identifier
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "rds_connections_high" {
+  alarm_name          = "${local.name}-rds-connections-high"
+  alarm_description   = "RDS connection count is high for a small instance."
+  namespace           = "AWS/RDS"
+  metric_name         = "DatabaseConnections"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    DBInstanceIdentifier = aws_db_instance.postgres.identifier
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "api_cpu_high" {
+  alarm_name          = "${local.name}-api-cpu-high"
+  alarm_description   = "API ECS service CPU utilization is high."
+  namespace           = "AWS/ECS"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.this.name
+    ServiceName = aws_ecs_service.api.name
+  }
+}
+
+resource "aws_cloudwatch_metric_alarm" "worker_cpu_high" {
+  alarm_name          = "${local.name}-worker-cpu-high"
+  alarm_description   = "Analytics worker ECS service CPU utilization is high."
+  namespace           = "AWS/ECS"
+  metric_name         = "CPUUtilization"
+  statistic           = "Average"
+  period              = 300
+  evaluation_periods  = 2
+  threshold           = 80
+  comparison_operator = "GreaterThanOrEqualToThreshold"
+  treat_missing_data  = "notBreaching"
+
+  dimensions = {
+    ClusterName = aws_ecs_cluster.this.name
+    ServiceName = aws_ecs_service.worker.name
+  }
+}
+
+resource "aws_cloudwatch_dashboard" "main" {
+  dashboard_name = local.name
+
+  dashboard_body = jsonencode({
+    widgets = [
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        properties = {
+          title   = "ALB API 5xx and Target Health"
+          region  = var.aws_region
+          metrics = [
+            ["AWS/ApplicationELB", "HTTPCode_Target_5XX_Count", "LoadBalancer", aws_lb.app.arn_suffix, "TargetGroup", aws_lb_target_group.api.arn_suffix, { stat = "Sum" }],
+            [".", "UnHealthyHostCount", ".", ".", ".", ".", { stat = "Maximum" }]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        properties = {
+          title   = "ECS CPU"
+          region  = var.aws_region
+          metrics = [
+            ["AWS/ECS", "CPUUtilization", "ClusterName", aws_ecs_cluster.this.name, "ServiceName", aws_ecs_service.api.name],
+            [".", ".", ".", ".", "ServiceName", aws_ecs_service.worker.name],
+            [".", ".", ".", ".", "ServiceName", aws_ecs_service.web.name]
+          ]
+        }
+      },
+      {
+        type   = "metric"
+        width  = 12
+        height = 6
+        properties = {
+          title   = "RDS CPU and Connections"
+          region  = var.aws_region
+          metrics = [
+            ["AWS/RDS", "CPUUtilization", "DBInstanceIdentifier", aws_db_instance.postgres.identifier],
+            [".", "DatabaseConnections", ".", "."]
+          ]
+        }
+      }
+    ]
+  })
 }

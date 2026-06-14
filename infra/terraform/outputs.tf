@@ -33,3 +33,8 @@ output "rds_master_user_secret_arn" {
   value       = aws_db_instance.postgres.master_user_secret[0].secret_arn
   sensitive   = true
 }
+
+output "cloudwatch_dashboard_name" {
+  description = "CloudWatch dashboard name for the deployment."
+  value       = aws_cloudwatch_dashboard.main.dashboard_name
+}

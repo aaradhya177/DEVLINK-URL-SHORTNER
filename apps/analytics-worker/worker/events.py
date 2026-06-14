@@ -8,6 +8,7 @@ class ClickEventMessage(BaseModel):
     """Kafka click-event message schema."""
 
     event_id: uuid.UUID
+    correlation_id: str | None = None
     link_id: int
     timestamp: datetime
     ip: str = Field(min_length=1)

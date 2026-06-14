@@ -26,6 +26,7 @@ async def publish_click_event(
     referrer: str | None,
     timestamp: datetime | None = None,
     event_id: uuid.UUID | None = None,
+    correlation_id: str | None = None,
 ) -> None:
     """Publish one click event without raising to the caller.
 
@@ -44,6 +45,7 @@ async def publish_click_event(
     occurred_at = timestamp or datetime.now(UTC)
     event = {
         "event_id": str(event_id or uuid.uuid4()),
+        "correlation_id": correlation_id,
         "link_id": link_id,
         "timestamp": occurred_at.isoformat(),
         "ip": anonymize_ip_for_geo(ip),
@@ -61,7 +63,11 @@ async def publish_click_event(
     except Exception as exc:  # pragma: no cover - defensive fire-and-forget boundary.
         logger.warning(
             "click_event_publish_failed",
-            extra={"link_id": link_id, "error": str(exc)},
+            extra={
+                "link_id": link_id,
+                "correlation_id": correlation_id,
+                "error": str(exc),
+            },
         )
 
 

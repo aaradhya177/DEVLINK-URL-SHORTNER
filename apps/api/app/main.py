@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
+from prometheus_fastapi_instrumentator import Instrumentator
 import uvicorn
 
 from app.core.config import settings
@@ -7,13 +8,23 @@ from src.analytics.router import router as analytics_router
 from src.auth.router import router as auth_router
 from src.links.router import router as links_router
 from src.redirect.router import router as redirect_router
+from src.shared.correlation import correlation_id_middleware
+from src.shared.logging_utils import configure_logging
 from src.workspaces.router import router as workspaces_router
+
+configure_logging(settings.log_level)
 
 app = FastAPI(
     title="DEVLINK API",
     version="0.1.0",
     description="API service for the Distributed Link Intelligence Platform.",
 )
+
+Instrumentator(
+    should_group_status_codes=True,
+    should_ignore_untemplated=True,
+    excluded_handlers=["/metrics"],
+).instrument(app).expose(app, include_in_schema=False)
 
 if settings.cors_allowed_origins:
     app.add_middleware(
@@ -23,6 +34,9 @@ if settings.cors_allowed_origins:
         allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type"],
     )
+
+
+app.middleware("http")(correlation_id_middleware)
 
 
 @app.middleware("http")

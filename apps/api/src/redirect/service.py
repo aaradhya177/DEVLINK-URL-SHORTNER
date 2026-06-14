@@ -159,6 +159,7 @@ def log_click(
     cache_status: str,
     client_id: str,
     event_id: str,
+    correlation_id: str | None = None,
 ) -> None:
     """Log a non-blocking click event placeholder for the future analytics phase."""
     logger.info(
@@ -168,6 +169,7 @@ def log_click(
         cache_status,
         extra={
             "event_id": event_id,
+            "correlation_id": correlation_id,
             "link_id": link_id,
             "short_code": short_code,
             "cache": cache_status,

@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     kafka_group_id: str = "devlink-analytics-worker"
     geoip_database_path: str | None = None
     ip_hash_secret: str = Field(default="local-dev-ip-hash-secret", min_length=16)
+    metrics_port: int = 9101
     log_level: str = "INFO"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
