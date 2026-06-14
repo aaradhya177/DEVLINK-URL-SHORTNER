@@ -53,22 +53,6 @@ async def bulk_create_links(
     return BulkLinkCreateResponse(results=results)
 
 
-@router.get("/{link_id}", response_model=LinkResponse)
-async def get_link(
-    link_id: int,
-    session: Annotated[AsyncSession, Depends(get_session)],
-    current_user: Annotated[User, Depends(rate_limit("read"))],
-) -> LinkResponse:
-    """Get one link by ID for the authenticated user."""
-    try:
-        link = await service.get_link(session, link_id, current_user=current_user)
-    except service.LinkNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except service.LinkPermissionError as exc:
-        raise HTTPException(status_code=403, detail=str(exc)) from exc
-    return LinkResponse.model_validate(link)
-
-
 @router.get("", response_model=list[LinkResponse])
 async def list_links(
     session: Annotated[AsyncSession, Depends(get_session)],
@@ -86,6 +70,22 @@ async def list_links(
         include_inactive=include_inactive,
     )
     return [LinkResponse.model_validate(link) for link in links]
+
+
+@router.get("/{link_id}", response_model=LinkResponse)
+async def get_link(
+    link_id: int,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current_user: Annotated[User, Depends(rate_limit("read"))],
+) -> LinkResponse:
+    """Get one link by ID for the authenticated user."""
+    try:
+        link = await service.get_link(session, link_id, current_user=current_user)
+    except service.LinkNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except service.LinkPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return LinkResponse.model_validate(link)
 
 
 @router.patch("/{link_id}", response_model=LinkResponse)
