@@ -41,7 +41,7 @@ async def _handle_message(consumer: AIOKafkaConsumer, message: object) -> None:
     except (UnicodeDecodeError, json.JSONDecodeError, ValidationError) as exc:
         logger.warning(
             "malformed_click_event_skipped",
-            extra={"error": str(exc)},
+            extra={"error": type(exc).__name__},
         )
         await consumer.commit()
         return

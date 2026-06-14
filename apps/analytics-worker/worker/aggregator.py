@@ -1,6 +1,7 @@
 import hashlib
 from datetime import UTC, datetime
 from time import perf_counter
+from urllib.parse import urlsplit
 
 from sqlalchemy import bindparam, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -24,6 +25,7 @@ async def process_click_event(
     clicked_at = _as_utc(event.timestamp)
     geo = geo_resolver.resolve(event.ip)
     ua = parse_user_agent(event.user_agent)
+    referrer_domain = _referrer_domain(event.referrer)
     ip_hash = _hash_ip(event.ip, clicked_at)
     insert_result = await session.execute(
         text(
@@ -45,8 +47,8 @@ async def process_click_event(
             "clicked_at": clicked_at,
             "link_id": event.link_id,
             "ip_hash": ip_hash,
-            "user_agent": event.user_agent,
-            "referer": event.referrer,
+            "user_agent": None,
+            "referer": referrer_domain,
             "country": geo["country"],
             "region": geo["region"],
             "city": geo["city"],
@@ -59,7 +61,7 @@ async def process_click_event(
 
     inserted = insert_result.rowcount == 1
     if inserted:
-        await _increment_aggregates(session, event, clicked_at, geo, ua)
+        await _increment_aggregates(session, event, clicked_at, geo, ua, referrer_domain)
 
     await session.commit()
     return inserted, (perf_counter() - start) * 1000
@@ -71,6 +73,7 @@ async def _increment_aggregates(
     clicked_at: datetime,
     geo: dict[str, str | None],
     ua: dict[str, str | None],
+    referrer_domain: str,
 ) -> None:
     """Increment daily and denormalized link aggregates."""
     await session.execute(
@@ -81,7 +84,8 @@ async def _increment_aggregates(
                 click_count
             )
             VALUES (
-                :link_id, :stat_date, :country, :device_type, '', 1
+                :link_id, :stat_date, :country, :device_type,
+                :referer_domain, 1
             )
             ON CONFLICT (
                 link_id, stat_date, country, device_type, referer_domain
@@ -96,6 +100,7 @@ async def _increment_aggregates(
             "stat_date": clicked_at.date(),
             "country": geo["country"] or "",
             "device_type": ua["device_type"] or "",
+            "referer_domain": referrer_domain,
         },
     )
     await session.execute(
@@ -115,3 +120,10 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
     return value.astimezone(UTC)
+
+
+def _referrer_domain(referrer: str | None) -> str:
+    """Return only the referrer domain, dropping path/query PII."""
+    if not referrer:
+        return ""
+    return (urlsplit(referrer).hostname or "").lower()

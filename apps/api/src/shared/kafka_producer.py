@@ -2,6 +2,7 @@ import json
 import logging
 import uuid
 from datetime import UTC, datetime
+from ipaddress import ip_address, ip_network
 from typing import Any
 
 from app.core.config import settings
@@ -24,6 +25,7 @@ async def publish_click_event(
     user_agent: str | None,
     referrer: str | None,
     timestamp: datetime | None = None,
+    event_id: uuid.UUID | None = None,
 ) -> None:
     """Publish one click event without raising to the caller.
 
@@ -31,7 +33,7 @@ async def publish_click_event(
     - event_id: UUID for idempotent worker processing.
     - link_id: database link ID.
     - timestamp: ISO-8601 UTC click time.
-    - ip: source IP for worker-side geolocation and salted hashing.
+    - ip: anonymized source IP for worker-side geolocation and salted hashing.
     - user_agent: raw user-agent string for worker-side parsing.
     - referrer: HTTP referrer, if present.
     """
@@ -41,10 +43,10 @@ async def publish_click_event(
 
     occurred_at = timestamp or datetime.now(UTC)
     event = {
-        "event_id": str(uuid.uuid4()),
+        "event_id": str(event_id or uuid.uuid4()),
         "link_id": link_id,
         "timestamp": occurred_at.isoformat(),
-        "ip": ip,
+        "ip": anonymize_ip_for_geo(ip),
         "user_agent": user_agent,
         "referrer": referrer,
     }
@@ -73,3 +75,15 @@ async def _get_producer() -> Any:
     await producer.start()
     _producer = producer
     return producer
+
+
+def anonymize_ip_for_geo(raw_ip: str) -> str:
+    """Return a coarse IP suitable for geo lookup without storing the raw IP."""
+    try:
+        parsed_ip = ip_address(raw_ip)
+    except ValueError:
+        return "0.0.0.0"
+
+    if parsed_ip.version == 4:
+        return str(ip_network(f"{parsed_ip}/24", strict=False).network_address)
+    return str(ip_network(f"{parsed_ip}/48", strict=False).network_address)

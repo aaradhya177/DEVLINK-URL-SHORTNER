@@ -80,6 +80,26 @@ We are building a production-grade URL shortener with analytics, operational rel
 - **Frontend:** React + TypeScript with Vite. This keeps the client fast to develop, strongly typed, and easy to evolve into a dashboard-heavy product.
 - **Python dependency management:** Poetry. It keeps dependency metadata, project scripts, virtualenv workflows, and packaging configuration in `pyproject.toml`, which matches the monorepo goal of independently runnable apps.
 
+## Analytics Event Delivery
+
+Redirects publish click events to Kafka asynchronously after the redirect target is
+resolved. Producer failures are logged and must not fail the redirect response.
+
+Kafka is the buffer when the analytics worker is down or the database is slow.
+Production deployments must set topic retention and disk capacity for the maximum
+acceptable worker outage window. The worker commits offsets only after malformed
+messages are logged/skipped or after database writes commit, so slow writes apply
+consumer backpressure without blocking redirects.
+
+Click events include an `event_id` for idempotency. The worker inserts the raw
+event first using conflict handling and increments aggregates only when that insert
+succeeds. Replayed Kafka messages therefore do not double-count rollups.
+
+Privacy rule: raw IP addresses must not be stored in PostgreSQL. The API
+anonymizes IPs before publishing to Kafka for coarse geo lookup, and the worker
+stores only a SHA-256 hash with a daily salt. Full referrer URLs are reduced to
+domains before persistence.
+
 ## ID Generation Strategy
 
 Short links use a Snowflake-style numeric ID encoded with Base62.

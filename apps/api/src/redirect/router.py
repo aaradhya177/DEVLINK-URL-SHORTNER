@@ -1,4 +1,5 @@
 from typing import Annotated
+import uuid
 
 from fastapi import (
     APIRouter,
@@ -48,13 +49,22 @@ async def redirect_short_code(
     if cached_link.is_password_protected:
         security.require_redirect_token(redirect_token or cookie_token, short_code)
 
-    service.log_click(short_code, cache_status, client_id)
+    event_id = uuid.uuid4()
+    service.log_click(
+        short_code,
+        cached_link.link_id,
+        cache_status,
+        client_id,
+        str(event_id),
+    )
     background_tasks.add_task(
         publish_click_event,
         cached_link.link_id,
         client_id,
         request.headers.get("user-agent"),
         request.headers.get("referer"),
+        None,
+        event_id,
     )
     response = RedirectResponse(
         cached_link.long_url,

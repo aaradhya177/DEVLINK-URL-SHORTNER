@@ -1,3 +1,4 @@
+import hashlib
 import logging
 from datetime import UTC, datetime
 
@@ -41,7 +42,7 @@ class RedirectRateLimitedError(Exception):
 
 async def check_redirect_rate_limit(short_code: str, client_id: str) -> int:
     """Apply a Redis-backed fixed-window redirect rate limit."""
-    key = f"rl:redirect:{short_code}:{client_id}"
+    key = f"rl:redirect:{short_code}:{hash_client_id(client_id)}"
     allowed, remaining = await increment_rate_limit(
         key,
         REDIRECT_RATE_LIMIT,
@@ -87,16 +88,32 @@ async def verify_redirect_password(
         raise RedirectInvalidPasswordError("Invalid redirect password.")
 
 
-def log_click(short_code: str, cache_status: str, client_id: str) -> None:
+def log_click(
+    short_code: str,
+    link_id: int,
+    cache_status: str,
+    client_id: str,
+    event_id: str,
+) -> None:
     """Log a non-blocking click event placeholder for the future analytics phase."""
     logger.info(
-        "redirect_click",
+        "redirect_click event_id=%s link_id=%s cache=%s",
+        event_id,
+        link_id,
+        cache_status,
         extra={
+            "event_id": event_id,
+            "link_id": link_id,
             "short_code": short_code,
             "cache": cache_status,
-            "client_id": client_id,
+            "client_hash": hash_client_id(client_id),
         },
     )
+
+
+def hash_client_id(client_id: str) -> str:
+    """Hash a redirect client identifier before using it in logs or Redis keys."""
+    return hashlib.sha256(client_id.encode("utf-8")).hexdigest()
 
 
 def _raise_if_unavailable(cached_link: CachedLink) -> None:
