@@ -1,0 +1,16 @@
+aws_region            = "us-east-1"
+project_name          = "devlink"
+environment           = "prod"
+container_image_owner = "your-github-owner-lowercase"
+
+# Use a specific SHA tag after CD has published images. "latest" is convenient
+# for first deployment but less precise for rollback.
+image_tag = "latest"
+
+# Pre-create this Secrets Manager secret. It should contain JSON keys:
+# DATABASE_URL, JWT_SECRET, and IP_HASH_SECRET.
+app_secrets_arn = "arn:aws:secretsmanager:us-east-1:123456789012:secret:devlink-prod/app-secrets-AbCdEf"
+
+# Leave empty if GHCR packages are public. If private, create a Secrets Manager
+# secret with {"username":"<github-user>","password":"<ghcr-token>"}.
+container_registry_credentials_secret_arn = ""
