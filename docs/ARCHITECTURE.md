@@ -100,6 +100,24 @@ anonymizes IPs before publishing to Kafka for coarse geo lookup, and the worker
 stores only a SHA-256 hash with a daily salt. Full referrer URLs are reduced to
 domains before persistence.
 
+## URL Safety Checks
+
+Link creation performs URL safety checks asynchronously so the API can return
+quickly even when an external provider is slow. Google Safe Browsing v4 is the
+initial provider when `GOOGLE_SAFE_BROWSING_API_KEY` is configured; local
+development uses the same provider interface with a no-key fallback that can
+flag Google's public Safe Browsing test URLs.
+
+The system intentionally fails open on provider failure or timeout: links remain
+active with `checked_at` unset and are retried by a scheduled maintenance job.
+This avoids coupling link creation latency and availability to a third-party
+security API. If a later check marks a URL malicious, the link is disabled,
+`flagged_reason` is set, and the Redis redirect cache is invalidated.
+
+Maintenance jobs are idempotent and concurrency-safe. Expiration scans and
+pending safety retries claim rows using PostgreSQL `FOR UPDATE SKIP LOCKED`, so
+multiple scheduler instances can run without double-processing the same batch.
+
 ## ID Generation Strategy
 
 Short links use a Snowflake-style numeric ID encoded with Base62.

@@ -28,6 +28,7 @@ class CachedLink:
     is_password_protected: bool
     password_hash: str | None
     workspace_id: str | None
+    flagged_reason: str | None
 
 
 redis_client: Redis = Redis.from_url(
@@ -52,6 +53,7 @@ async def get_link_cache(short_code: str) -> CachedLink | None:
 
     try:
         payload = json.loads(raw_value)
+        payload.setdefault("flagged_reason", None)
         return CachedLink(**payload)
     except (TypeError, ValueError) as exc:
         logger.warning(
@@ -135,6 +137,7 @@ def cached_link_from_model(link: object) -> CachedLink:
         is_password_protected=password_hash is not None,
         password_hash=password_hash,
         workspace_id=str(workspace_id) if workspace_id is not None else None,
+        flagged_reason=getattr(link, "flagged_reason", None),
     )
 
 

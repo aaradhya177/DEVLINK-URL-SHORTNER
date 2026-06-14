@@ -50,6 +50,8 @@ export interface LinkResponse {
   title: string | null;
   is_password_protected: boolean;
   is_active: boolean;
+  flagged_reason: string | null;
+  checked_at: string | null;
   expires_at: string | null;
   created_at: string;
   updated_at: string;

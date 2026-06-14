@@ -19,12 +19,12 @@ passlib = { extras = ["bcrypt"], version = "^1.7.4" }
 redis = "^7.0.0"
 aiokafka = "^0.12.0"
 qrcode = { extras = ["pil"], version = "^8.2" }
+httpx = "^0.27.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.8.0"
 ruff = "^0.6.0"
 pytest = "^8.3.0"
-httpx = "^0.27.0"
 
 [tool.poetry.scripts]
 devlink-api = "app.main:run"

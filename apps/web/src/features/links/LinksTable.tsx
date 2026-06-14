@@ -56,7 +56,11 @@ export function LinksTable({ links }: { links: LinkResponse[] }) {
                 <a href={link.destination_url}>{link.destination_url}</a>
               </td>
               <td>
-                <StatusBadge active={link.is_active} />
+                <StatusBadge
+                  active={link.is_active}
+                  flaggedReason={link.flagged_reason}
+                  expiresAt={link.expires_at}
+                />
               </td>
               <td>{link.expires_at ? formatDate(link.expires_at) : "Never"}</td>
               <td>

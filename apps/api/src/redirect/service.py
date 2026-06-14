@@ -28,6 +28,10 @@ class RedirectGoneError(Exception):
     """Raised when a short code exists but cannot be redirected."""
 
 
+class RedirectFlaggedError(Exception):
+    """Raised when a short code is blocked by URL safety checks."""
+
+
 class RedirectPasswordRequiredError(Exception):
     """Raised when a short code requires password verification."""
 
@@ -118,6 +122,9 @@ def hash_client_id(client_id: str) -> str:
 
 def _raise_if_unavailable(cached_link: CachedLink) -> None:
     """Raise when redirect metadata points to inactive or expired link."""
+    if cached_link.flagged_reason is not None:
+        raise RedirectFlaggedError("Link was blocked for safety.")
+
     if not cached_link.is_active:
         raise RedirectGoneError("Link is inactive.")
 

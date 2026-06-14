@@ -1,6 +1,15 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.session import get_session
@@ -24,6 +33,7 @@ router = APIRouter(prefix="/api/v1/links", tags=["links"])
 @router.post("", response_model=LinkResponse, status_code=status.HTTP_201_CREATED)
 async def create_link(
     payload: LinkCreate,
+    background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(rate_limit("write"))],
 ) -> LinkResponse:
@@ -38,12 +48,14 @@ async def create_link(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except service.LinkPermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    background_tasks.add_task(service.check_link_safety_by_id, link.id)
     return LinkResponse.model_validate(link)
 
 
 @router.post("/bulk", response_model=BulkLinkCreateResponse)
 async def bulk_create_links(
     payload: BulkLinkCreateRequest,
+    background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(rate_limit("bulk"))],
 ) -> BulkLinkCreateResponse:
@@ -52,6 +64,9 @@ async def bulk_create_links(
         results = await service.bulk_create_links(session, payload, current_user)
     except service.LinkPermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    for result in results:
+        if result.link is not None and result.status == "created":
+            background_tasks.add_task(service.check_link_safety_by_id, result.link.id)
     return BulkLinkCreateResponse(results=results)
 
 
@@ -136,6 +151,7 @@ def _qr_response(image: bytes, image_format: str, cache_status: str) -> Response
 async def update_link(
     link_id: int,
     payload: LinkUpdate,
+    background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_session)],
     current_user: Annotated[User, Depends(rate_limit("write"))],
 ) -> LinkResponse:
@@ -157,6 +173,8 @@ async def update_link(
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except service.LinkPermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if payload.destination_url is not None:
+        background_tasks.add_task(service.check_link_safety_by_id, link.id)
     return LinkResponse.model_validate(link)
 
 

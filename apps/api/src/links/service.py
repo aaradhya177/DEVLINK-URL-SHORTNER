@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.security import hash_password
+from src.db.session import async_session_factory
 from src.links import repository
 from src.links.schemas import (
     BulkLinkCreateRequest,
@@ -18,6 +19,7 @@ from src.models.link import Link
 from src.models.user import User
 from src.shared.cache import cached_link_from_model, invalidate_link_cache, set_link_cache
 from src.shared.id_generator import SnowflakeGenerator, default_generator, encode_base62
+from src.shared.url_safety import check_url_safety
 from src.shared.url_utils import hash_long_url, normalize_url
 from src.workspaces.permissions import user_has_workspace_role
 
@@ -258,6 +260,8 @@ async def get_public_link_by_short_code(
     if link is None:
         raise LinkNotFoundError("Link not found.")
     now = datetime.now(UTC)
+    if link.flagged_reason is not None:
+        raise LinkUnavailableError(f"Link is flagged: {link.flagged_reason}.")
     if not link.is_active or (link.expires_at is not None and link.expires_at <= now):
         raise LinkUnavailableError("Link is expired or inactive.")
     return link
@@ -304,6 +308,8 @@ async def update_link(
         )
         link.destination_url = normalized_url
         link.long_url_hash = hash_long_url(normalized_url)
+        link.flagged_reason = None
+        link.checked_at = None
 
     if payload.custom_alias is not None:
         next_short_code = _validate_custom_alias(payload.custom_alias)
@@ -354,6 +360,23 @@ async def soft_delete_link(
     await session.commit()
     await invalidate_link_cache(short_code)
     return deleted_link
+
+
+async def check_link_safety_by_id(link_id: int) -> None:
+    """Check one link in the background and flag it if unsafe."""
+    async with async_session_factory() as session:
+        link = await repository.get_link_by_id(session, link_id)
+        if link is None:
+            return
+        result = await check_url_safety(link.destination_url)
+        link.checked_at = datetime.now(UTC) if result.checked else None
+        if result.is_malicious:
+            link.is_active = False
+            link.flagged_reason = result.reason or "malicious_url"
+        await repository.update_link(session, link)
+        await session.commit()
+        if result.is_malicious:
+            await invalidate_link_cache(link.short_code)
 
 
 def _validate_custom_alias(alias: str) -> str:

@@ -1,5 +1,6 @@
-from typing import Annotated
 import uuid
+from html import escape
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -10,7 +11,7 @@ from fastapi import (
     Response,
     status,
 )
-from fastapi.responses import RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.session import get_session
@@ -29,7 +30,7 @@ async def redirect_short_code(
     background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_session)],
     redirect_token: str | None = None,
-) -> RedirectResponse:
+) -> Response:
     """Resolve a short code and redirect when allowed."""
     client_id = _client_id(request)
     try:
@@ -42,8 +43,10 @@ async def redirect_short_code(
         raise HTTPException(status_code=429, detail=str(exc)) from exc
     except service.RedirectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    except service.RedirectGoneError as exc:
-        raise HTTPException(status_code=410, detail=str(exc)) from exc
+    except service.RedirectFlaggedError:
+        return _blocked_page(short_code)
+    except service.RedirectGoneError:
+        return _expired_page(short_code)
 
     cookie_token = request.cookies.get(security.redirect_cookie_name(short_code))
     if cached_link.is_password_protected:
@@ -87,6 +90,8 @@ async def verify_redirect_password(
         await service.verify_redirect_password(session, short_code, payload.password)
     except service.RedirectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except service.RedirectFlaggedError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except service.RedirectGoneError as exc:
         raise HTTPException(status_code=410, detail=str(exc)) from exc
     except service.RedirectInvalidPasswordError as exc:
@@ -112,3 +117,65 @@ def _client_id(request: Request) -> str:
     if request.client is None:
         return "unknown"
     return request.client.host
+
+
+def _blocked_page(short_code: str) -> HTMLResponse:
+    """Return a safety warning page for flagged short links."""
+    return HTMLResponse(
+        _status_page_html(
+            "Blocked link",
+            f"The short link {short_code} was disabled because it was flagged as unsafe.",
+        ),
+        status_code=status.HTTP_403_FORBIDDEN,
+    )
+
+
+def _expired_page(short_code: str) -> HTMLResponse:
+    """Return an expiration page for inactive or expired short links."""
+    return HTMLResponse(
+        _status_page_html(
+            "Expired link",
+            f"The short link {short_code} is no longer active.",
+        ),
+        status_code=status.HTTP_410_GONE,
+    )
+
+
+def _status_page_html(title: str, message: str) -> str:
+    """Build a tiny standalone redirect status page."""
+    escaped_title = escape(title)
+    escaped_message = escape(message)
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{escaped_title}</title>
+  <style>
+    body {{
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      font-family: Inter, system-ui, sans-serif;
+      color: #172033;
+      background: #eef2f7;
+    }}
+    main {{
+      width: min(92vw, 520px);
+      padding: 28px;
+      border: 1px solid #d7dee8;
+      border-radius: 8px;
+      background: #fff;
+    }}
+    h1 {{ margin: 0 0 10px; font-size: 1.5rem; }}
+    p {{ margin: 0; color: #475569; line-height: 1.5; }}
+  </style>
+</head>
+<body>
+  <main>
+    <h1>{escaped_title}</h1>
+    <p>{escaped_message}</p>
+  </main>
+</body>
+</html>"""

@@ -56,6 +56,8 @@ class LinkResponse(BaseModel):
     title: str | None
     is_password_protected: bool
     is_active: bool
+    flagged_reason: str | None
+    checked_at: datetime | None
     expires_at: datetime | None
     created_at: datetime
     updated_at: datetime

@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     rate_limit_write_requests: int = 60
     rate_limit_bulk_requests: int = 10
     rate_limit_window_seconds: int = 60
+    google_safe_browsing_api_key: str | None = None
+    url_safety_timeout_seconds: float = 0.4
     app_env: str = "local"
     log_level: str = "INFO"
 
