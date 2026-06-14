@@ -3,11 +3,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.auth.security import get_current_user
 from src.db.session import get_session
 from src.links import service
-from src.links.schemas import LinkCreate, LinkResponse, LinkUpdate
+from src.links.schemas import (
+    BulkLinkCreateRequest,
+    BulkLinkCreateResponse,
+    LinkCreate,
+    LinkResponse,
+    LinkUpdate,
+)
 from src.models.user import User
+from src.shared.rate_limiter import rate_limit
 
 
 router = APIRouter(prefix="/api/v1/links", tags=["links"])
@@ -17,7 +23,7 @@ router = APIRouter(prefix="/api/v1/links", tags=["links"])
 async def create_link(
     payload: LinkCreate,
     session: Annotated[AsyncSession, Depends(get_session)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(rate_limit("write"))],
 ) -> LinkResponse:
     """Create a link for the authenticated user."""
     try:
@@ -33,11 +39,25 @@ async def create_link(
     return LinkResponse.model_validate(link)
 
 
+@router.post("/bulk", response_model=BulkLinkCreateResponse)
+async def bulk_create_links(
+    payload: BulkLinkCreateRequest,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    current_user: Annotated[User, Depends(rate_limit("bulk"))],
+) -> BulkLinkCreateResponse:
+    """Create many links with per-item success/error results."""
+    try:
+        results = await service.bulk_create_links(session, payload, current_user)
+    except service.LinkPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    return BulkLinkCreateResponse(results=results)
+
+
 @router.get("/{link_id}", response_model=LinkResponse)
 async def get_link(
     link_id: int,
     session: Annotated[AsyncSession, Depends(get_session)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(rate_limit("read"))],
 ) -> LinkResponse:
     """Get one link by ID for the authenticated user."""
     try:
@@ -52,7 +72,7 @@ async def get_link(
 @router.get("", response_model=list[LinkResponse])
 async def list_links(
     session: Annotated[AsyncSession, Depends(get_session)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(rate_limit("read"))],
     limit: Annotated[int, Query(ge=1, le=100)] = 50,
     offset: Annotated[int, Query(ge=0)] = 0,
     include_inactive: bool = False,
@@ -73,7 +93,7 @@ async def update_link(
     link_id: int,
     payload: LinkUpdate,
     session: Annotated[AsyncSession, Depends(get_session)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(rate_limit("write"))],
 ) -> LinkResponse:
     """Update one link for the authenticated user."""
     try:
@@ -100,7 +120,7 @@ async def update_link(
 async def delete_link(
     link_id: int,
     session: Annotated[AsyncSession, Depends(get_session)],
-    current_user: Annotated[User, Depends(get_current_user)],
+    current_user: Annotated[User, Depends(rate_limit("write"))],
 ) -> LinkResponse:
     """Soft-delete one link for the authenticated user."""
     try:

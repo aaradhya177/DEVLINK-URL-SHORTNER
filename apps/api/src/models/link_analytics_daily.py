@@ -19,6 +19,8 @@ class LinkAnalyticsDaily(Base):
     stat_date: Mapped[date] = mapped_column(Date, primary_key=True)
     country: Mapped[str] = mapped_column(String(2), primary_key=True, default="")
     device_type: Mapped[str] = mapped_column(String(64), primary_key=True, default="")
+    browser: Mapped[str] = mapped_column(String(64), primary_key=True, default="")
+    os: Mapped[str] = mapped_column(String(64), primary_key=True, default="")
     referer_domain: Mapped[str] = mapped_column(String(255), primary_key=True, default="")
     click_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     created_at: Mapped[datetime] = mapped_column(

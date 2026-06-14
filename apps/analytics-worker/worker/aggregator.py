@@ -81,14 +81,15 @@ async def _increment_aggregates(
             """
             INSERT INTO link_analytics_daily (
                 link_id, stat_date, country, device_type, referer_domain,
-                click_count
+                browser, os, click_count
             )
             VALUES (
                 :link_id, :stat_date, :country, :device_type,
-                :referer_domain, 1
+                :referer_domain, :browser, :os, 1
             )
             ON CONFLICT (
-                link_id, stat_date, country, device_type, referer_domain
+                link_id, stat_date, country, device_type, browser, os,
+                referer_domain
             )
             DO UPDATE SET
                 click_count = link_analytics_daily.click_count + 1,
@@ -100,6 +101,8 @@ async def _increment_aggregates(
             "stat_date": clicked_at.date(),
             "country": geo["country"] or "",
             "device_type": ua["device_type"] or "",
+            "browser": ua["browser"] or "",
+            "os": ua["os"] or "",
             "referer_domain": referrer_domain,
         },
     )

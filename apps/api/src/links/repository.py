@@ -62,6 +62,32 @@ async def get_link_by_long_url_hash(
     return await session.scalar(stmt)
 
 
+async def get_links_by_long_url_hashes(
+    session: AsyncSession,
+    long_url_hashes: set[str],
+    owner_id: uuid.UUID,
+    workspace_id: uuid.UUID | None,
+    now: datetime,
+) -> Sequence[Link]:
+    """Fetch active dedup candidates for a batch of URL hashes."""
+    if not long_url_hashes:
+        return []
+
+    stmt = select(Link).where(
+        Link.long_url_hash.in_(long_url_hashes),
+        Link.owner_id == owner_id,
+        Link.is_active.is_(True),
+        or_(Link.expires_at.is_(None), Link.expires_at > now),
+    )
+    if workspace_id is None:
+        stmt = stmt.where(Link.workspace_id.is_(None))
+    else:
+        stmt = stmt.where(Link.workspace_id == workspace_id)
+
+    result = await session.scalars(stmt.order_by(Link.created_at.desc()))
+    return result.all()
+
+
 async def list_links(
     session: AsyncSession,
     user_id: uuid.UUID,

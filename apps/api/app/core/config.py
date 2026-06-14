@@ -11,6 +11,10 @@ class Settings(BaseSettings):
     access_token_minutes: int = 15
     refresh_token_days: int = 30
     devlink_worker_id: int = 1
+    rate_limit_read_requests: int = 300
+    rate_limit_write_requests: int = 60
+    rate_limit_bulk_requests: int = 10
+    rate_limit_window_seconds: int = 60
     app_env: str = "local"
     log_level: str = "INFO"
 

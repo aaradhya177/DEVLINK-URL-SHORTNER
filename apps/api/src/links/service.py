@@ -7,7 +7,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.auth.security import hash_password
 from src.links import repository
-from src.links.schemas import LinkCreate, LinkUpdate
+from src.links.schemas import (
+    BulkLinkCreateRequest,
+    BulkLinkResult,
+    LinkCreate,
+    LinkResponse,
+    LinkUpdate,
+)
 from src.models.link import Link
 from src.models.user import User
 from src.shared.cache import cached_link_from_model, invalidate_link_cache, set_link_cache
@@ -127,6 +133,102 @@ async def create_link(
         raise AliasConflictError("Short code is already in use.") from exc
 
     return created_link
+
+
+async def bulk_create_links(
+    session: AsyncSession,
+    payload: BulkLinkCreateRequest,
+    current_user: User,
+    generator: SnowflakeGenerator = default_generator,
+) -> list[BulkLinkResult]:
+    """Create many links with batched dedup lookup and per-item results."""
+    if payload.workspace_id is not None:
+        allowed = await user_has_workspace_role(
+            session,
+            payload.workspace_id,
+            current_user.id,
+            "editor",
+        )
+        if not allowed:
+            raise LinkPermissionError("Insufficient workspace permissions.")
+
+    now = datetime.now(UTC)
+    prepared: list[tuple[int, str, str, str]] = []
+    results: dict[int, BulkLinkResult] = {}
+    for index, raw_url in enumerate(payload.urls):
+        try:
+            if not raw_url.startswith(("http://", "https://")):
+                raise ValueError("URL must start with http:// or https://.")
+            normalized_url = normalize_url(
+                raw_url,
+                strip_tracking_params=payload.strip_tracking_params,
+            )
+            long_url_hash = hash_long_url(normalized_url)
+            prepared.append((index, raw_url, normalized_url, long_url_hash))
+        except ValueError as exc:
+            results[index] = BulkLinkResult(
+                index=index,
+                status="error",
+                url=raw_url,
+                error=str(exc),
+            )
+
+    existing_by_hash: dict[str, Link] = {}
+    hashes = {item[3] for item in prepared}
+    existing_links = await repository.get_links_by_long_url_hashes(
+        session,
+        hashes,
+        owner_id=current_user.id,
+        workspace_id=payload.workspace_id,
+        now=now,
+    )
+    for existing_link in existing_links:
+        existing_by_hash.setdefault(existing_link.long_url_hash, existing_link)
+
+    new_links: list[tuple[int, str, Link]] = []
+    seen_hashes: dict[str, Link] = {}
+    for index, raw_url, normalized_url, long_url_hash in prepared:
+        existing_link = existing_by_hash.get(long_url_hash) or seen_hashes.get(
+            long_url_hash
+        )
+        if existing_link is not None:
+            results[index] = BulkLinkResult(
+                index=index,
+                status="deduped",
+                url=raw_url,
+                link=LinkResponse.model_validate(existing_link),
+            )
+            continue
+
+        link_id = generator.generate()
+        link = Link(
+            id=link_id,
+            workspace_id=payload.workspace_id,
+            owner_id=current_user.id,
+            short_code=encode_base62(link_id),
+            destination_url=normalized_url,
+            long_url_hash=long_url_hash,
+            is_active=True,
+            click_count=0,
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(link)
+        new_links.append((index, raw_url, link))
+        seen_hashes[long_url_hash] = link
+
+    if new_links:
+        await session.commit()
+        for index, raw_url, link in new_links:
+            await set_link_cache(link.short_code, cached_link_from_model(link))
+            results[index] = BulkLinkResult(
+                index=index,
+                status="created",
+                url=raw_url,
+                link=LinkResponse.model_validate(link),
+            )
+
+    return [results[index] for index in range(len(payload.urls))]
 
 
 async def get_link(

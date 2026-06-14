@@ -61,3 +61,27 @@ class LinkResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class BulkLinkCreateRequest(BaseModel):
+    """Bulk URL shortening request."""
+
+    urls: list[str] = Field(min_length=1, max_length=50)
+    workspace_id: uuid.UUID | None = None
+    strip_tracking_params: bool = True
+
+
+class BulkLinkResult(BaseModel):
+    """Per-item bulk shortening result."""
+
+    index: int
+    status: str
+    url: str
+    link: LinkResponse | None = None
+    error: str | None = None
+
+
+class BulkLinkCreateResponse(BaseModel):
+    """Bulk URL shortening response."""
+
+    results: list[BulkLinkResult]

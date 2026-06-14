@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 import uvicorn
 
+from src.analytics.router import router as analytics_router
 from src.auth.router import router as auth_router
 from src.links.router import router as links_router
 from src.redirect.router import router as redirect_router
@@ -14,6 +15,7 @@ app = FastAPI(
 
 app.include_router(auth_router)
 app.include_router(links_router)
+app.include_router(analytics_router)
 app.include_router(redirect_router)
 app.include_router(workspaces_router)
 
