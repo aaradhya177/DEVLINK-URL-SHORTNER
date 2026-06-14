@@ -1,3 +1,4 @@
+import asyncio
 import re
 import uuid
 from datetime import UTC, datetime
@@ -20,7 +21,7 @@ from src.models.user import User
 from src.shared.cache import cached_link_from_model, invalidate_link_cache, set_link_cache
 from src.shared.id_generator import SnowflakeGenerator, default_generator, encode_base62
 from src.shared.url_safety import check_url_safety
-from src.shared.url_utils import hash_long_url, normalize_url
+from src.shared.url_utils import hash_long_url, normalize_url, validate_safe_redirect_url
 from src.workspaces.permissions import user_has_workspace_role
 
 
@@ -163,8 +164,7 @@ async def bulk_create_links(
     results: dict[int, BulkLinkResult] = {}
     for index, raw_url in enumerate(payload.urls):
         try:
-            if not raw_url.startswith(("http://", "https://")):
-                raise ValueError("URL must start with http:// or https://.")
+            validate_safe_redirect_url(raw_url)
             normalized_url = normalize_url(
                 raw_url,
                 strip_tracking_params=payload.strip_tracking_params,
@@ -225,8 +225,13 @@ async def bulk_create_links(
 
     if new_links:
         await session.commit()
+        await asyncio.gather(
+            *(
+                set_link_cache(link.short_code, cached_link_from_model(link))
+                for _, _, link in new_links
+            )
+        )
         for index, raw_url, link in new_links:
-            await set_link_cache(link.short_code, cached_link_from_model(link))
             results[index] = BulkLinkResult(
                 index=index,
                 status="created",

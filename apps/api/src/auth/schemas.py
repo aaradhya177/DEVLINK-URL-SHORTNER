@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class RegisterRequest(BaseModel):
@@ -6,6 +6,7 @@ class RegisterRequest(BaseModel):
 
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=8, max_length=128)
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("email")
     @classmethod
@@ -22,6 +23,7 @@ class LoginRequest(BaseModel):
 
     email: str = Field(min_length=3, max_length=320)
     password: str = Field(min_length=1, max_length=128)
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("email")
     @classmethod
@@ -34,6 +36,7 @@ class RefreshRequest(BaseModel):
     """Request body for refresh-token rotation or logout."""
 
     refresh_token: str = Field(min_length=1)
+    model_config = ConfigDict(extra="forbid")
 
 
 class TokenResponse(BaseModel):

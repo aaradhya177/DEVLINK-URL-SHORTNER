@@ -17,6 +17,14 @@ class Settings(BaseSettings):
     rate_limit_window_seconds: int = 60
     google_safe_browsing_api_key: str | None = None
     url_safety_timeout_seconds: float = 0.4
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    db_pool_timeout_seconds: int = 30
+    redis_max_connections: int = 100
+    cors_allowed_origins: list[str] = Field(default_factory=list)
+    allow_private_redirect_urls: bool = False
+    redirect_password_attempt_limit: int = 10
+    redirect_password_attempt_window_seconds: int = 60
     app_env: str = "local"
     log_level: str = "INFO"
 
@@ -37,6 +45,16 @@ class Settings(BaseSettings):
         placeholders = {"change-me", "change-me-in-local-env"}
         if value in placeholders:
             raise ValueError("JWT_SECRET must be replaced with a strong secret.")
+        return value
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: str | list[str]) -> list[str]:
+        """Allow comma-separated CORS origins in environment variables."""
+        if isinstance(value, str):
+            if not value.strip():
+                return []
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
         return value
 
 

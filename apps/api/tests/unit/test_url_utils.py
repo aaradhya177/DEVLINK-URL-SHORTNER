@@ -1,6 +1,6 @@
 import pytest
 
-from src.shared.url_utils import hash_long_url, normalize_url
+from src.shared.url_utils import hash_long_url, normalize_url, validate_safe_redirect_url
 
 
 @pytest.mark.parametrize(
@@ -50,6 +50,32 @@ def test_normalize_url_rejects_relative_url() -> None:
     """Only absolute HTTP(S)-style URLs should reach link creation."""
     with pytest.raises(ValueError):
         normalize_url("/relative/path")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "file:///etc/passwd",
+        "http://localhost/admin",
+        "http://LOCALHOST./admin",
+        "http://app.localhost/admin",
+        "http://127.0.0.1/admin",
+        "http://10.0.0.1/admin",
+        "http://172.16.0.1/admin",
+        "http://192.168.0.1/admin",
+        "http://169.254.169.254/latest/meta-data",
+        "http://[::1]/admin",
+    ],
+)
+def test_validate_safe_redirect_url_rejects_ssrf_targets(url: str) -> None:
+    """Redirect targets should reject localhost, private IPs, and non-HTTP schemes."""
+    with pytest.raises(ValueError):
+        validate_safe_redirect_url(url)
+
+
+def test_validate_safe_redirect_url_allows_public_http_url() -> None:
+    """Public HTTP(S) targets should be accepted."""
+    assert validate_safe_redirect_url("https://example.com/path") == "https://example.com/path"
 
 
 def test_hash_long_url_is_stable_sha256() -> None:

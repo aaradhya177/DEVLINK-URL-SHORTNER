@@ -1,6 +1,8 @@
 import hashlib
 import logging
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,6 +46,23 @@ class RedirectRateLimitedError(Exception):
     """Raised when a redirect exceeds hot-path abuse limits."""
 
 
+@dataclass(frozen=True, slots=True)
+class RedirectLookupTimings:
+    """Milliseconds spent in redirect metadata lookup stages."""
+
+    cache_lookup_ms: float
+    db_fallback_ms: float
+
+
+@dataclass(frozen=True, slots=True)
+class RedirectMetadataResult:
+    """Redirect metadata plus cache status and timing fields."""
+
+    cached_link: CachedLink
+    cache_status: str
+    timings: RedirectLookupTimings
+
+
 async def check_redirect_rate_limit(short_code: str, client_id: str) -> int:
     """Apply a Redis-backed fixed-window redirect rate limit."""
     key = f"rl:redirect:{short_code}:{hash_client_id(client_id)}"
@@ -57,24 +76,66 @@ async def check_redirect_rate_limit(short_code: str, client_id: str) -> int:
     return remaining
 
 
+async def check_redirect_password_rate_limit(short_code: str, client_id: str) -> int:
+    """Apply a stricter Redis-backed limit to redirect password attempts."""
+    from app.core.config import settings
+
+    key = f"rl:redirect-password:{short_code}:{hash_client_id(client_id)}"
+    allowed, remaining = await increment_rate_limit(
+        key,
+        settings.redirect_password_attempt_limit,
+        settings.redirect_password_attempt_window_seconds,
+    )
+    if not allowed:
+        raise RedirectRateLimitedError("Too many password attempts.")
+    return remaining
+
+
 async def get_redirect_metadata(
     session: AsyncSession,
     short_code: str,
 ) -> tuple[CachedLink, str]:
     """Fetch redirect metadata from cache, falling back to the database."""
+    result = await get_redirect_metadata_with_timings(session, short_code)
+    return result.cached_link, result.cache_status
+
+
+async def get_redirect_metadata_with_timings(
+    session: AsyncSession,
+    short_code: str,
+) -> RedirectMetadataResult:
+    """Fetch redirect metadata and return hot-path timing fields."""
+    cache_start = perf_counter()
     cached_link = await get_link_cache(short_code)
+    cache_lookup_ms = _elapsed_ms(cache_start)
     if cached_link is not None:
         _raise_if_unavailable(cached_link)
-        return cached_link, "HIT"
+        return RedirectMetadataResult(
+            cached_link=cached_link,
+            cache_status="HIT",
+            timings=RedirectLookupTimings(
+                cache_lookup_ms=cache_lookup_ms,
+                db_fallback_ms=0.0,
+            ),
+        )
 
+    db_start = perf_counter()
     link = await get_link_by_short_code(session, short_code)
+    db_fallback_ms = _elapsed_ms(db_start)
     if link is None:
         raise RedirectNotFoundError("Link not found.")
 
     cached_link = cached_link_from_model(link)
     _raise_if_unavailable(cached_link)
     await set_link_cache(short_code, cached_link)
-    return cached_link, "MISS"
+    return RedirectMetadataResult(
+        cached_link=cached_link,
+        cache_status="MISS",
+        timings=RedirectLookupTimings(
+            cache_lookup_ms=cache_lookup_ms,
+            db_fallback_ms=db_fallback_ms,
+        ),
+    )
 
 
 async def verify_redirect_password(
@@ -118,6 +179,11 @@ def log_click(
 def hash_client_id(client_id: str) -> str:
     """Hash a redirect client identifier before using it in logs or Redis keys."""
     return hashlib.sha256(client_id.encode("utf-8")).hexdigest()
+
+
+def _elapsed_ms(start: float) -> float:
+    """Return elapsed milliseconds from a perf_counter start."""
+    return round((perf_counter() - start) * 1000, 3)
 
 
 def _raise_if_unavailable(cached_link: CachedLink) -> None:

@@ -37,6 +37,7 @@ redis_client: Redis = Redis.from_url(
     decode_responses=True,
     socket_connect_timeout=0.2,
     socket_timeout=0.2,
+    max_connections=settings.redis_max_connections,
 )
 
 

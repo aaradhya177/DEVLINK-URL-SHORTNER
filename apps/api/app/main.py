@@ -1,6 +1,8 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
+from app.core.config import settings
 from src.analytics.router import router as analytics_router
 from src.auth.router import router as auth_router
 from src.links.router import router as links_router
@@ -12,6 +14,35 @@ app = FastAPI(
     version="0.1.0",
     description="API service for the Distributed Link Intelligence Platform.",
 )
+
+if settings.cors_allowed_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_allowed_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
+    )
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next) -> Response:
+    """Attach baseline browser security headers to every API response."""
+    response: Response = await call_next(request)
+    response.headers.setdefault("X-Content-Type-Options", "nosniff")
+    response.headers.setdefault("X-Frame-Options", "DENY")
+    response.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    response.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'none'; frame-ancestors 'none'; base-uri 'none'",
+    )
+    if settings.app_env.lower() in {"prod", "production"}:
+        response.headers.setdefault(
+            "Strict-Transport-Security",
+            "max-age=31536000; includeSubDomains",
+        )
+    return response
+
 
 app.include_router(auth_router)
 app.include_router(links_router)

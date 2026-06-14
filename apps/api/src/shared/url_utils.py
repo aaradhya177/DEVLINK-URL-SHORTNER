@@ -1,5 +1,8 @@
 import hashlib
+from ipaddress import ip_address
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+from app.core.config import settings
 
 
 TRACKING_PARAM_PREFIXES = ("utm_",)
@@ -11,6 +14,7 @@ TRACKING_PARAM_NAMES = {
     "mc_eid",
     "msclkid",
 }
+LOCALHOST_NAMES = {"localhost", "localhost.localdomain"}
 
 
 def normalize_url(url: str, strip_tracking_params: bool = True) -> str:
@@ -48,6 +52,19 @@ def normalize_url(url: str, strip_tracking_params: bool = True) -> str:
     return urlunsplit((scheme, netloc, parsed.path or "/", query, parsed.fragment))
 
 
+def validate_safe_redirect_url(url: str) -> str:
+    """Validate redirect destinations and reject SSRF-prone targets."""
+    parsed = urlsplit(url.strip())
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise ValueError("URL must start with http:// or https://.")
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL must include a host.")
+    if not settings.allow_private_redirect_urls and _is_private_hostname(hostname):
+        raise ValueError("Redirect URL host is not allowed.")
+    return url
+
+
 def hash_long_url(url: str) -> str:
     """Return the SHA-256 hex digest used by links.long_url_hash."""
     return hashlib.sha256(url.encode("utf-8")).hexdigest()
@@ -63,4 +80,23 @@ def _is_tracking_param(name: str) -> bool:
     lower_name = name.lower()
     return lower_name in TRACKING_PARAM_NAMES or lower_name.startswith(
         TRACKING_PARAM_PREFIXES
+    )
+
+
+def _is_private_hostname(hostname: str) -> bool:
+    """Return whether hostname is localhost or an internal IP literal."""
+    normalized = hostname.strip().rstrip(".").lower()
+    if normalized in LOCALHOST_NAMES or normalized.endswith(".localhost"):
+        return True
+    try:
+        parsed_ip = ip_address(normalized)
+    except ValueError:
+        return False
+    return (
+        parsed_ip.is_private
+        or parsed_ip.is_loopback
+        or parsed_ip.is_link_local
+        or parsed_ip.is_multicast
+        or parsed_ip.is_reserved
+        or parsed_ip.is_unspecified
     )

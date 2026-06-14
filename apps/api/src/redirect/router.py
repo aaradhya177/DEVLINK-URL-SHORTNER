@@ -1,5 +1,6 @@
 import uuid
 from html import escape
+from time import perf_counter
 from typing import Annotated
 
 from fastapi import (
@@ -14,6 +15,7 @@ from fastapi import (
 from fastapi.responses import HTMLResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from src.db.session import get_session
 from src.redirect import security, service
 from src.redirect.schemas import PasswordVerifyRequest, PasswordVerifyResponse
@@ -32,10 +34,13 @@ async def redirect_short_code(
     redirect_token: str | None = None,
 ) -> Response:
     """Resolve a short code and redirect when allowed."""
+    request_start = perf_counter()
+    rate_limit_start = perf_counter()
     client_id = _client_id(request)
     try:
         remaining = await service.check_redirect_rate_limit(short_code, client_id)
-        cached_link, cache_status = await service.get_redirect_metadata(
+        rate_limit_ms = _elapsed_ms(rate_limit_start)
+        metadata = await service.get_redirect_metadata_with_timings(
             session,
             short_code,
         )
@@ -48,6 +53,7 @@ async def redirect_short_code(
     except service.RedirectGoneError:
         return _expired_page(short_code)
 
+    cached_link = metadata.cached_link
     cookie_token = request.cookies.get(security.redirect_cookie_name(short_code))
     if cached_link.is_password_protected:
         security.require_redirect_token(redirect_token or cookie_token, short_code)
@@ -56,7 +62,7 @@ async def redirect_short_code(
     service.log_click(
         short_code,
         cached_link.link_id,
-        cache_status,
+        metadata.cache_status,
         client_id,
         str(event_id),
     )
@@ -73,7 +79,21 @@ async def redirect_short_code(
         cached_link.long_url,
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
     )
-    response.headers["X-Devlink-Cache"] = cache_status
+    total_ms = _elapsed_ms(request_start)
+    service.logger.info(
+        "redirect_timing",
+        extra={
+            "event_id": str(event_id),
+            "link_id": cached_link.link_id,
+            "short_code": short_code,
+            "cache": metadata.cache_status,
+            "rate_limit_ms": rate_limit_ms,
+            "cache_lookup_ms": metadata.timings.cache_lookup_ms,
+            "db_fallback_ms": metadata.timings.db_fallback_ms,
+            "total_response_ms": total_ms,
+        },
+    )
+    response.headers["X-Devlink-Cache"] = metadata.cache_status
     response.headers["X-RateLimit-Remaining"] = str(remaining)
     return response
 
@@ -82,12 +102,23 @@ async def redirect_short_code(
 async def verify_redirect_password(
     short_code: str,
     payload: PasswordVerifyRequest,
+    request: Request,
     response: Response,
     session: Annotated[AsyncSession, Depends(get_session)],
 ) -> PasswordVerifyResponse:
     """Verify a protected redirect password and issue a short-lived token."""
     try:
+        remaining = await service.check_redirect_password_rate_limit(
+            short_code,
+            _client_id(request),
+        )
         await service.verify_redirect_password(session, short_code, payload.password)
+    except service.RedirectRateLimitedError as exc:
+        raise HTTPException(
+            status_code=429,
+            detail=str(exc),
+            headers={"Retry-After": str(settings.redirect_password_attempt_window_seconds)},
+        ) from exc
     except service.RedirectNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except service.RedirectFlaggedError as exc:
@@ -106,6 +137,7 @@ async def verify_redirect_password(
         httponly=True,
         samesite="lax",
     )
+    response.headers["X-RateLimit-Remaining"] = str(remaining)
     return PasswordVerifyResponse(redirect_token=token, expires_in=expires_in)
 
 
@@ -179,3 +211,8 @@ def _status_page_html(title: str, message: str) -> str:
   </main>
 </body>
 </html>"""
+
+
+def _elapsed_ms(start: float) -> float:
+    """Return elapsed milliseconds from a perf_counter start."""
+    return round((perf_counter() - start) * 1000, 3)

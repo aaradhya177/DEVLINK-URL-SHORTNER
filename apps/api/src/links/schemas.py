@@ -3,6 +3,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from src.shared.url_utils import validate_safe_redirect_url
+
 
 class LinkCreate(BaseModel):
     """Request body for creating a short link."""
@@ -14,14 +16,13 @@ class LinkCreate(BaseModel):
     password: str | None = Field(default=None, min_length=8, max_length=128)
     expires_at: datetime | None = None
     strip_tracking_params: bool = True
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("destination_url")
     @classmethod
     def validate_destination_url(cls, value: str) -> str:
         """Require an absolute HTTP(S) destination URL."""
-        if not value.startswith(("http://", "https://")):
-            raise ValueError("destination_url must start with http:// or https://.")
-        return value
+        return validate_safe_redirect_url(value)
 
 
 class LinkUpdate(BaseModel):
@@ -35,14 +36,13 @@ class LinkUpdate(BaseModel):
     is_active: bool | None = None
     expires_at: datetime | None = None
     strip_tracking_params: bool = True
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("destination_url")
     @classmethod
     def validate_destination_url(cls, value: str | None) -> str | None:
         """Require an absolute HTTP(S) destination URL when one is supplied."""
-        if value is not None and not value.startswith(("http://", "https://")):
-            raise ValueError("destination_url must start with http:// or https://.")
-        return value
+        return validate_safe_redirect_url(value) if value is not None else None
 
 
 class LinkResponse(BaseModel):
@@ -71,6 +71,17 @@ class BulkLinkCreateRequest(BaseModel):
     urls: list[str] = Field(min_length=1, max_length=50)
     workspace_id: uuid.UUID | None = None
     strip_tracking_params: bool = True
+    model_config = ConfigDict(extra="forbid")
+
+    @field_validator("urls")
+    @classmethod
+    def validate_urls(cls, value: list[str]) -> list[str]:
+        """Validate every bulk redirect URL before service processing."""
+        for url in value:
+            if len(url) > 4096:
+                raise ValueError("URLs must be 4096 characters or fewer.")
+            validate_safe_redirect_url(url)
+        return value
 
 
 class BulkLinkResult(BaseModel):

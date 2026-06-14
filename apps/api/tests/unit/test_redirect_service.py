@@ -74,6 +74,23 @@ async def test_redirect_metadata_returns_cache_hit(monkeypatch) -> None:
     assert cache_status == "HIT"
 
 
+async def test_redirect_metadata_with_timings_reports_cache_hit(monkeypatch) -> None:
+    """Timed lookup should expose cache/DB phase durations."""
+    cached = _cached_link()
+
+    async def get_link_cache(_: str) -> CachedLink:
+        return cached
+
+    monkeypatch.setattr(service, "get_link_cache", get_link_cache)
+
+    result = await service.get_redirect_metadata_with_timings(object(), "abc")
+
+    assert result.cached_link is cached
+    assert result.cache_status == "HIT"
+    assert result.timings.cache_lookup_ms >= 0
+    assert result.timings.db_fallback_ms == 0.0
+
+
 async def test_redirect_metadata_db_miss_raises_not_found(monkeypatch) -> None:
     """Missing short codes should not be cached as successful redirects."""
 
@@ -117,12 +134,15 @@ async def test_redirect_metadata_db_fallback_populates_cache(monkeypatch) -> Non
     monkeypatch.setattr(service, "get_link_by_short_code", get_link_by_short_code)
     monkeypatch.setattr(service, "set_link_cache", set_link_cache)
 
+    timed_result = await service.get_redirect_metadata_with_timings(object(), "abc")
     result, cache_status = await service.get_redirect_metadata(object(), "abc")
 
     assert cache_status == "MISS"
     assert result.link_id == 7
     assert result.long_url == "https://example.com"
     assert cached_values["abc"] == result
+    assert timed_result.cache_status == "MISS"
+    assert timed_result.timings.db_fallback_ms >= 0
 
 
 async def test_redirect_password_verification(monkeypatch) -> None:
@@ -165,3 +185,27 @@ async def test_redirect_rate_limit(monkeypatch) -> None:
 
     assert calls[0].startswith("rl:redirect:abc:")
     assert "203.0.113.10" not in calls[0]
+
+
+async def test_redirect_password_rate_limit_uses_separate_bucket(monkeypatch) -> None:
+    """Password attempts should be limited separately from redirect clicks."""
+    calls: list[tuple[str, int, int]] = []
+
+    async def increment_rate_limit(
+        key: str,
+        limit: int,
+        window_seconds: int,
+    ) -> tuple[bool, int]:
+        calls.append((key, limit, window_seconds))
+        return False, 0
+
+    monkeypatch.setattr(service, "increment_rate_limit", increment_rate_limit)
+
+    with pytest.raises(service.RedirectRateLimitedError):
+        await service.check_redirect_password_rate_limit("abc", "203.0.113.10")
+
+    key, limit, window_seconds = calls[0]
+    assert key.startswith("rl:redirect-password:abc:")
+    assert "203.0.113.10" not in key
+    assert limit > 0
+    assert window_seconds > 0

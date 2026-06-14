@@ -10,12 +10,14 @@ class WorkspaceCreate(BaseModel):
     """Request body for creating a workspace."""
 
     name: str = Field(min_length=1, max_length=120)
+    model_config = ConfigDict(extra="forbid")
 
 
 class WorkspaceUpdate(BaseModel):
     """Request body for updating workspace metadata."""
 
     name: str = Field(min_length=1, max_length=120)
+    model_config = ConfigDict(extra="forbid")
 
 
 class WorkspaceResponse(BaseModel):
@@ -35,6 +37,7 @@ class WorkspaceMemberCreate(BaseModel):
 
     user_id: uuid.UUID
     role: str = Field(default="viewer")
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("role")
     @classmethod
@@ -47,6 +50,7 @@ class WorkspaceMemberUpdate(BaseModel):
     """Request body for updating a workspace member role."""
 
     role: str
+    model_config = ConfigDict(extra="forbid")
 
     @field_validator("role")
     @classmethod
