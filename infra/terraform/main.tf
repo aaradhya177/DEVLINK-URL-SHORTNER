@@ -521,20 +521,22 @@ resource "aws_ecs_task_definition" "kafka" {
   container_definitions = jsonencode([
     {
       name      = "kafka"
-      image     = "bitnami/kafka:3.7"
+      image     = "apache/kafka:3.7.0"
       essential = true
       portMappings = [{ containerPort = 9092, protocol = "tcp" }]
       environment = [
-        { name = "KAFKA_CFG_NODE_ID", value = "1" },
-        { name = "KAFKA_CFG_PROCESS_ROLES", value = "controller,broker" },
-        { name = "KAFKA_CFG_CONTROLLER_QUORUM_VOTERS", value = "1@localhost:9093" },
-        { name = "KAFKA_CFG_LISTENERS", value = "PLAINTEXT://:9092,CONTROLLER://:9093" },
-        { name = "KAFKA_CFG_ADVERTISED_LISTENERS", value = "PLAINTEXT://kafka.${aws_service_discovery_private_dns_namespace.this.name}:9092" },
-        { name = "KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP", value = "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" },
-        { name = "KAFKA_CFG_CONTROLLER_LISTENER_NAMES", value = "CONTROLLER" },
-        { name = "KAFKA_CFG_INTER_BROKER_LISTENER_NAME", value = "PLAINTEXT" },
-        { name = "KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE", value = "true" },
-        { name = "ALLOW_PLAINTEXT_LISTENER", value = "yes" }
+        { name = "KAFKA_NODE_ID", value = "1" },
+        { name = "KAFKA_PROCESS_ROLES", value = "controller,broker" },
+        { name = "KAFKA_CONTROLLER_QUORUM_VOTERS", value = "1@localhost:9093" },
+        { name = "KAFKA_LISTENERS", value = "PLAINTEXT://:9092,CONTROLLER://:9093" },
+        { name = "KAFKA_ADVERTISED_LISTENERS", value = "PLAINTEXT://kafka.${aws_service_discovery_private_dns_namespace.this.name}:9092" },
+        { name = "KAFKA_LISTENER_SECURITY_PROTOCOL_MAP", value = "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" },
+        { name = "KAFKA_CONTROLLER_LISTENER_NAMES", value = "CONTROLLER" },
+        { name = "KAFKA_INTER_BROKER_LISTENER_NAME", value = "PLAINTEXT" },
+        { name = "KAFKA_AUTO_CREATE_TOPICS_ENABLE", value = "true" },
+        { name = "KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR", value = "1" },
+        { name = "KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR", value = "1" },
+        { name = "KAFKA_TRANSACTION_STATE_LOG_MIN_ISR", value = "1" }
       ]
       logConfiguration = {
         logDriver = "awslogs"
