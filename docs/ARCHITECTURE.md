@@ -283,6 +283,36 @@ Use Conventional Commits:
 - Target coverage: at least 80% line coverage for backend and worker code, with higher coverage around ID generation and redirect logic.
 - Frontend coverage should focus on route behavior, form validation, API client states, and dashboard rendering.
 
+### Test Execution Strategy
+
+- **Backend unit tests:** Run without Docker or network access. They cover pure
+  logic such as Snowflake/Base62 generation, URL normalization/hashing, and
+  Redis-backed rate limit behavior using fakes.
+- **Backend integration tests:** Marked `integration` and require
+  `TEST_DATABASE_URL` pointing at a disposable PostgreSQL database. The test
+  session applies Alembic migrations and truncates tables between tests. External
+  providers such as Google Safe Browsing, Redis, and Kafka are mocked or faked so
+  CI does not need outbound network access.
+- **Analytics worker tests:** Call worker functions directly against the same
+  migrated test database. Kafka delivery is represented by constructing
+  `ClickEventMessage` objects, which keeps idempotency tests deterministic.
+- **Frontend tests:** Use Vitest with React Testing Library and mocked API
+  modules. Component tests cover link creation form behavior and analytics
+  rendering with representative dashboard data.
+
+Typical local commands:
+
+```text
+cd apps/api && pytest
+cd apps/api && pytest --cov
+cd apps/analytics-worker && pytest
+cd apps/analytics-worker && pytest --cov
+cd apps/web && npm test
+```
+
+For database-backed tests, start local dependencies and set
+`TEST_DATABASE_URL=postgresql+asyncpg://devlink:devlink@localhost:5432/devlink_test`.
+
 ## Phased Build Roadmap
 
 1. **Core link CRUD:** Implement link model, migrations, repository layer, create/list/read/update/delete endpoints, and validation.
