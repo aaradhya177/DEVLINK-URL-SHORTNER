@@ -18,12 +18,19 @@ async def _register_and_login(client, email: str) -> dict[str, str | int]:
         json={"email": email, "password": "correct-horse"},
     )
     assert register.status_code == 201
+    assert register.json()["email"] == email
+    assert "id" in register.json()
     login = await client.post(
         "/api/v1/auth/login",
         json={"email": email, "password": "correct-horse"},
     )
     assert login.status_code == 200
-    return login.json()
+    body = login.json()
+    assert body["token_type"] == "bearer"
+    assert body["expires_in"] > 0
+    assert body["access_token"]
+    assert body["refresh_token"]
+    return body
 
 
 def _auth(tokens: dict[str, str | int]) -> dict[str, str]:
@@ -47,6 +54,7 @@ async def test_register_login_refresh_logout_flow(api_client) -> None:
         json={"refresh_token": tokens["refresh_token"]},
     )
     assert old_refresh.status_code == 401
+    assert old_refresh.json()["detail"] == "Invalid refresh token."
 
     logout = await api_client.post(
         "/api/v1/auth/logout",
@@ -58,6 +66,7 @@ async def test_register_login_refresh_logout_flow(api_client) -> None:
         json={"refresh_token": rotated["refresh_token"]},
     )
     assert after_logout.status_code == 401
+    assert after_logout.json()["detail"] == "Invalid refresh token."
 
 
 def test_expired_access_token_is_rejected() -> None:
@@ -107,6 +116,7 @@ async def test_workspace_rbac_blocks_viewer_from_admin_action(api_client) -> Non
         headers=_auth(viewer_tokens),
     )
     assert viewer_read.status_code == 200
+    assert viewer_read.json()["name"] == "Team"
 
     viewer_update = await api_client.patch(
         f"/api/v1/workspaces/{workspace_id}",
@@ -114,3 +124,4 @@ async def test_workspace_rbac_blocks_viewer_from_admin_action(api_client) -> Non
         headers=_auth(viewer_tokens),
     )
     assert viewer_update.status_code == 403
+    assert "permission" in viewer_update.json()["detail"].lower()

@@ -14,10 +14,12 @@ async def _register_login_create(client, payload: dict[str, object]) -> dict[str
         json={"email": "redirect@example.com", "password": "correct-horse"},
     )
     assert register.status_code == 201
+    assert register.json()["email"] == "redirect@example.com"
     login = await client.post(
         "/api/v1/auth/login",
         json={"email": "redirect@example.com", "password": "correct-horse"},
     )
+    assert login.status_code == 200
     token = login.json()["access_token"]
     created = await client.post(
         "/api/v1/links",
@@ -25,6 +27,8 @@ async def _register_login_create(client, payload: dict[str, object]) -> dict[str
         headers={"Authorization": f"Bearer {token}"},
     )
     assert created.status_code == 201
+    assert created.json()["destination_url"].startswith("https://example.com")
+    assert created.json()["is_active"] is True
     return created.json()
 
 
@@ -94,6 +98,7 @@ async def test_password_protected_redirect_flow(api_client, fake_redirect_cache)
         follow_redirects=False,
     )
     assert redirected.status_code == 307
+    assert redirected.headers["location"] == "https://example.com/private"
 
 
 async def test_expired_and_flagged_redirect_pages(api_client, fake_redirect_cache) -> None:
