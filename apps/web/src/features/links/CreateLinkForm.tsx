@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { FormEvent, useMemo, useState } from "react";
 import { QRCodeCanvas } from "qrcode.react";
-import { createLink } from "../../api/links";
+import { createLink, getQrImageUrl } from "../../api/links";
 import { apiUrl } from "../../api/client";
 import { Button } from "../../components/Button";
 import { FormField } from "../../components/FormField";
@@ -103,7 +103,11 @@ export function CreateLinkForm() {
       <div className="qr-preview">
         <QRCodeCanvas value={previewUrl} size={132} />
         <p>QR preview updates when you enter a custom alias.</p>
-        <small>Generated client-side; no backend QR endpoint exists yet.</small>
+        {customAlias.trim() && (
+          <small>
+            Downloadable QR: {getQrImageUrl(customAlias.trim(), "png")}
+          </small>
+        )}
       </div>
     </form>
   );

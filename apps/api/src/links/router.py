@@ -1,10 +1,11 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.session import get_session
 from src.links import service
+from src.links.qr import generate_qr_png, generate_qr_svg
 from src.links.schemas import (
     BulkLinkCreateRequest,
     BulkLinkCreateResponse,
@@ -13,6 +14,7 @@ from src.links.schemas import (
     LinkUpdate,
 )
 from src.models.user import User
+from src.shared.cache import get_qr_cache, set_qr_cache
 from src.shared.rate_limiter import rate_limit
 
 
@@ -72,6 +74,35 @@ async def list_links(
     return [LinkResponse.model_validate(link) for link in links]
 
 
+@router.get("/{short_code}/qr")
+async def get_link_qr(
+    short_code: str,
+    request: Request,
+    session: Annotated[AsyncSession, Depends(get_session)],
+    image_format: Annotated[str, Query(pattern="^(png|svg)$")] = "png",
+) -> Response:
+    """Return a cached QR code image for a public redirect URL."""
+    try:
+        link = await service.get_public_link_by_short_code(session, short_code)
+    except service.LinkNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except service.LinkUnavailableError as exc:
+        raise HTTPException(status_code=410, detail=str(exc)) from exc
+
+    cached_image = await get_qr_cache(short_code, image_format)
+    if cached_image is not None:
+        return _qr_response(cached_image, image_format, "HIT")
+
+    redirect_url = str(request.url_for("redirect_short_code", short_code=short_code))
+    image = (
+        generate_qr_svg(redirect_url)
+        if image_format == "svg"
+        else generate_qr_png(redirect_url)
+    )
+    await set_qr_cache(link.short_code, image_format, image)
+    return _qr_response(image, image_format, "MISS")
+
+
 @router.get("/{link_id}", response_model=LinkResponse)
 async def get_link(
     link_id: int,
@@ -86,6 +117,19 @@ async def get_link(
     except service.LinkPermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
     return LinkResponse.model_validate(link)
+
+
+def _qr_response(image: bytes, image_format: str, cache_status: str) -> Response:
+    """Build a QR image response."""
+    media_type = "image/svg+xml" if image_format == "svg" else "image/png"
+    return Response(
+        content=image,
+        media_type=media_type,
+        headers={
+            "Cache-Control": "public, max-age=3600",
+            "X-Devlink-Cache": cache_status,
+        },
+    )
 
 
 @router.patch("/{link_id}", response_model=LinkResponse)

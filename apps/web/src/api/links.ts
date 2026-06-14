@@ -1,4 +1,4 @@
-import { apiRequest } from "./client";
+import { apiRequest, apiUrl } from "./client";
 import type {
   BulkLinkCreateRequest,
   BulkLinkCreateResponse,
@@ -52,4 +52,12 @@ export function bulkCreateLinks(
     method: "POST",
     body: JSON.stringify(payload),
   });
+}
+
+export function getQrImageUrl(
+  shortCode: string,
+  imageFormat: "png" | "svg" = "png",
+): string {
+  const search = new URLSearchParams({ image_format: imageFormat });
+  return apiUrl(`/api/v1/links/${shortCode}/qr?${search.toString()}`);
 }

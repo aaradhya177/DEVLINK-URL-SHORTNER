@@ -61,6 +61,10 @@ class LinkPermissionError(LinkServiceError):
     """Raised when a user cannot access or modify a link."""
 
 
+class LinkUnavailableError(LinkServiceError):
+    """Raised when a public link exists but should not be served."""
+
+
 async def create_link(
     session: AsyncSession,
     payload: LinkCreate,
@@ -242,6 +246,20 @@ async def get_link(
         raise LinkNotFoundError("Link not found.")
     if not await _can_read_link(session, link, current_user):
         raise LinkPermissionError("Insufficient link permissions.")
+    return link
+
+
+async def get_public_link_by_short_code(
+    session: AsyncSession,
+    short_code: str,
+) -> Link:
+    """Return an active, unexpired link by short code for public assets."""
+    link = await repository.get_link_by_short_code(session, short_code)
+    if link is None:
+        raise LinkNotFoundError("Link not found.")
+    now = datetime.now(UTC)
+    if not link.is_active or (link.expires_at is not None and link.expires_at <= now):
+        raise LinkUnavailableError("Link is expired or inactive.")
     return link
 
 

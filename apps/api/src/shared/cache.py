@@ -1,3 +1,4 @@
+import base64
 import json
 import logging
 from dataclasses import asdict, dataclass
@@ -13,6 +14,7 @@ logger = logging.getLogger(__name__)
 LINK_CACHE_PREFIX = "link:"
 DEFAULT_LINK_CACHE_TTL_SECONDS = 300
 EXPIRATION_SKEW_SECONDS = 5
+QR_CACHE_TTL_SECONDS = 3600
 
 
 @dataclass(slots=True)
@@ -88,6 +90,38 @@ async def invalidate_link_cache(short_code: str) -> None:
         logger.warning("redis_link_cache_delete_failed", extra={"error": str(exc)})
 
 
+async def get_qr_cache(short_code: str, image_format: str) -> bytes | None:
+    """Return cached QR image bytes, or None on miss/Redis failure."""
+    try:
+        raw_value = await redis_client.get(_qr_cache_key(short_code, image_format))
+    except RedisError as exc:
+        logger.warning("redis_qr_cache_get_failed", extra={"error": str(exc)})
+        return None
+    if raw_value is None:
+        return None
+    try:
+        return base64.b64decode(raw_value.encode("ascii"))
+    except ValueError as exc:
+        logger.warning("redis_qr_cache_decode_failed", extra={"error": str(exc)})
+        return None
+
+
+async def set_qr_cache(
+    short_code: str,
+    image_format: str,
+    image_bytes: bytes,
+) -> None:
+    """Cache QR image bytes as base64 text."""
+    try:
+        await redis_client.setex(
+            _qr_cache_key(short_code, image_format),
+            QR_CACHE_TTL_SECONDS,
+            base64.b64encode(image_bytes).decode("ascii"),
+        )
+    except RedisError as exc:
+        logger.warning("redis_qr_cache_set_failed", extra={"error": str(exc)})
+
+
 def cached_link_from_model(link: object) -> CachedLink:
     """Build cached redirect metadata from a Link-like ORM object."""
     expires_at = getattr(link, "expires_at")
@@ -123,6 +157,11 @@ async def increment_rate_limit(
 def _link_cache_key(short_code: str) -> str:
     """Return the Redis cache key for a short code."""
     return f"{LINK_CACHE_PREFIX}{short_code}"
+
+
+def _qr_cache_key(short_code: str, image_format: str) -> str:
+    """Return the Redis cache key for a QR image."""
+    return f"qr:{image_format}:{short_code}"
 
 
 def _ttl_from_expires_at(expires_at: str | None) -> int:
