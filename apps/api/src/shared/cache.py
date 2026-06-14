@@ -19,6 +19,7 @@ EXPIRATION_SKEW_SECONDS = 5
 class CachedLink:
     """Serializable redirect metadata cached by short code."""
 
+    link_id: int
     long_url: str
     expires_at: str | None
     is_active: bool
@@ -93,6 +94,7 @@ def cached_link_from_model(link: object) -> CachedLink:
     workspace_id = getattr(link, "workspace_id")
     password_hash = getattr(link, "password_hash")
     return CachedLink(
+        link_id=getattr(link, "id"),
         long_url=getattr(link, "destination_url"),
         expires_at=expires_at.isoformat() if expires_at is not None else None,
         is_active=getattr(link, "is_active"),

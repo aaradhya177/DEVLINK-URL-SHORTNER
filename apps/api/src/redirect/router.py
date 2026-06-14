@@ -1,12 +1,21 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.db.session import get_session
 from src.redirect import security, service
 from src.redirect.schemas import PasswordVerifyRequest, PasswordVerifyResponse
+from src.shared.kafka_producer import publish_click_event
 
 
 router = APIRouter(prefix="/r", tags=["redirect"])
@@ -16,6 +25,7 @@ router = APIRouter(prefix="/r", tags=["redirect"])
 async def redirect_short_code(
     short_code: str,
     request: Request,
+    background_tasks: BackgroundTasks,
     session: Annotated[AsyncSession, Depends(get_session)],
     redirect_token: str | None = None,
 ) -> RedirectResponse:
@@ -39,6 +49,13 @@ async def redirect_short_code(
         security.require_redirect_token(redirect_token or cookie_token, short_code)
 
     service.log_click(short_code, cache_status, client_id)
+    background_tasks.add_task(
+        publish_click_event,
+        cached_link.link_id,
+        client_id,
+        request.headers.get("user-agent"),
+        request.headers.get("referer"),
+    )
     response = RedirectResponse(
         cached_link.long_url,
         status_code=status.HTTP_307_TEMPORARY_REDIRECT,
