@@ -1,5 +1,5 @@
-import { Outlet } from "react-router-dom";
+import { DevlinkShowcase } from "./DevlinkShowcase";
 
 export function App() {
-  return <Outlet />;
+  return <DevlinkShowcase />;
 }
