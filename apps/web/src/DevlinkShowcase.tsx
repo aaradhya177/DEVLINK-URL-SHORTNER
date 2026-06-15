@@ -54,10 +54,34 @@ export function DevlinkShowcase() {
   const [currentPage, setCurrentPage] = useState<Page>("landing");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [currentUser, setCurrentUser] = useState<User>({ name: "Aaradhya", email: "aaradhya@example.com" });
-  const [links, setLinks] = useState<LinkItem[]>([]);
+  const [links, setLinks] = useState<LinkItem[]>(() => loadStoredLinks());
   const [selectedLinkId, setSelectedLinkId] = useState<number | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [toast, setToast] = useState<ToastState>(null);
+
+  useEffect(() => {
+    storeLinks(links);
+  }, [links]);
+
+  useEffect(() => {
+    const code = getPathShortCode();
+    if (!code) return;
+
+    const match = links.find((link) => link.shortCode === code);
+    if (match) {
+      window.location.replace(match.longUrl);
+      return;
+    }
+
+    setToast({
+      title: "Short link not found",
+      message: "This frontend demo can only redirect links created in this browser.",
+      type: "error",
+    });
+    setIsAuthenticated(true);
+    setCurrentPage("links");
+    window.history.replaceState({}, "", "/");
+  }, [links]);
 
   function navigate(page: Page) {
     if (["dashboard", "create", "analytics", "links", "workspace"].includes(page) && !isAuthenticated) {
@@ -89,7 +113,7 @@ export function DevlinkShowcase() {
     };
     setLinks((items) => [link, ...items]);
     setSelectedLinkId(link.id);
-    setToast({ title: "Link created", message: `lnk.ai/${link.shortCode}`, type: "success" });
+    setToast({ title: "Link created", message: publicShortUrl(link.shortCode), type: "success" });
     setCurrentPage("dashboard");
   }
 
@@ -371,7 +395,7 @@ function CreatePage({
   const validUrl = url.length === 0 ? null : /^https?:\/\/[^\s]+\.[^\s]+/.test(url);
   const aliasTaken = reservedCodes.has(alias) || links.some((link) => link.shortCode === alias);
   const aliasAvailable = alias.length > 2 && !aliasTaken;
-  const shortPreview = `lnk.ai/${alias || "—"}`;
+  const shortPreview = alias ? publicShortUrl(alias) : `${publicBaseUrl()}/—`;
 
   function submit() {
     if (!validUrl || aliasTaken) return;
@@ -453,7 +477,7 @@ function AnalyticsPage({
       />
     );
   }
-  const shortUrl = `lnk.ai/${link.shortCode}`;
+  const shortUrl = publicShortUrl(link.shortCode);
   const data = useMemo(() => makeClickSeries(link.clicks), [link.clicks]);
   return (
     <div>
@@ -701,7 +725,7 @@ function LinksTable({
         </thead>
         <tbody>
           {links.map((link) => {
-            const shortUrl = `lnk.ai/${link.shortCode}`;
+            const shortUrl = publicShortUrl(link.shortCode);
             return (
               <tr key={link.id} className="group h-12 border-b border-white/[0.04] transition-ui hover:bg-white/[0.02]">
                 {selectable && (
@@ -790,7 +814,9 @@ function AliasField({ value, onChange, taken, available }: { value: string; onCh
     <label className="block">
       <span className="mb-2 block text-[11px] font-medium uppercase tracking-widest text-[#888888]">Short Code</span>
       <div className="flex rounded-[4px] border border-white/[0.06] bg-[#080808] transition-ui focus-within:border-[#E8FF47] focus-within:shadow-[0_0_0_3px_rgba(232,255,71,0.08)]">
-        <span className="border-r border-white/[0.06] bg-[#1C1C1C] px-3 py-3 text-[13px] text-[#444444]">lnk.ai/</span>
+        <span className="max-w-[45%] truncate border-r border-white/[0.06] bg-[#1C1C1C] px-3 py-3 text-[13px] text-[#444444]">
+          {publicHost()}/
+        </span>
         <input className="min-w-0 flex-1 bg-transparent px-3 py-3 text-[13px] text-[#F0F0F0] outline-none" value={value} onChange={(event) => onChange(event.target.value)} />
         {available && <span className="px-3 py-3 text-[11px] text-[#22C55E]">available</span>}
         {taken && value && <span className="px-3 py-3 text-[11px] text-[#EF4444]">taken</span>}
@@ -862,6 +888,7 @@ function Feature({ icon: Icon, title, copy, last }: { icon: LucideIcon; title: s
 }
 
 function TerminalWindow() {
+  const host = publicHost();
   return (
     <div className="mt-16 w-full max-w-[380px] overflow-hidden rounded-[6px] border border-white/[0.06] bg-[#111111] shadow-card lg:absolute lg:right-20 lg:top-1/2 lg:mt-0 lg:-translate-y-1/2">
       <div className="relative flex h-9 items-center bg-[#1C1C1C] px-4">
@@ -873,7 +900,7 @@ function TerminalWindow() {
         <span className="absolute left-1/2 -translate-x-1/2 text-[11px] text-[#444444]">bash</span>
       </div>
       <pre className="p-5 font-mono text-xs leading-[1.8] text-[#888888]">
-        <span className="text-[#E8FF47]">$</span>{` curl -X POST lnk.ai/api/v1/links \\
+        <span className="text-[#E8FF47]">$</span>{` curl -X POST ${host}/api/v1/links \\
   -H "Authorization: Bearer sk_..." \\
   -d '{
     "url": "github.com/aaradhya/...",
@@ -881,9 +908,9 @@ function TerminalWindow() {
   }'
 
 {
-  "short_url": "lnk.ai/my-portfolio",
+  "short_url": "${host}/my-portfolio",
   "created_at": "just now",
-  "analytics": "lnk.ai/analytics/..."
+  "analytics": "${host}/analytics/..."
 }`}
         <span className="ml-1 inline-block h-3.5 w-0.5 animate-pulse bg-[#E8FF47]" />
       </pre>
@@ -1000,6 +1027,44 @@ function randomCode() {
   return Math.random().toString(36).slice(2, 8);
 }
 
+function publicBaseUrl() {
+  if (typeof window === "undefined") return "https://web-wheat-ten-92.vercel.app";
+  return window.location.origin;
+}
+
+function publicHost() {
+  if (typeof window === "undefined") return "web-wheat-ten-92.vercel.app";
+  return window.location.host;
+}
+
+function publicShortUrl(code: string) {
+  return `${publicBaseUrl()}/${code}`;
+}
+
+function loadStoredLinks(): LinkItem[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem("devlink.preview.links");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Array<Omit<LinkItem, "createdAt"> & { createdAt: string }>;
+    return parsed.map((link) => ({ ...link, createdAt: new Date(link.createdAt) }));
+  } catch {
+    return [];
+  }
+}
+
+function storeLinks(links: LinkItem[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem("devlink.preview.links", JSON.stringify(links));
+}
+
+function getPathShortCode() {
+  if (typeof window === "undefined") return null;
+  const path = window.location.pathname.replace(/^\/+|\/+$/g, "");
+  if (!path || path.includes("/") || knownPaths.has(path)) return null;
+  return path;
+}
+
 function initials(name: string) {
   return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 }
@@ -1041,3 +1106,14 @@ const tooltipStyle = {
   borderRadius: "4px",
   color: "#F0F0F0",
 };
+
+const knownPaths = new Set([
+  "landing",
+  "login",
+  "register",
+  "dashboard",
+  "create",
+  "analytics",
+  "links",
+  "workspace",
+]);
